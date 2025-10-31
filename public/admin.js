@@ -8,9 +8,19 @@ const refreshBtn = document.getElementById('refreshBtn');
 const currentUserSpan = document.getElementById('currentUser');
 const totalUsersSpan = document.getElementById('totalUsers');
 
+// Modal de resetar senha
+const resetPasswordModal = document.getElementById('resetPasswordModal');
+const resetPasswordModalClose = document.getElementById('resetPasswordModalClose');
+const resetUsernameSpan = document.getElementById('resetUsername');
+const resetNewPasswordInput = document.getElementById('resetNewPasswordInput');
+const resetConfirmPasswordInput = document.getElementById('resetConfirmPasswordInput');
+const saveResetPasswordBtn = document.getElementById('saveResetPasswordBtn');
+const cancelResetPasswordBtn = document.getElementById('cancelResetPasswordBtn');
+
 // Constantes
 const API_URL = window.location.origin;
 let currentUser = null;
+let currentResetUserId = null;
 
 // ==================== FUNÇÕES AUXILIARES ====================
 
@@ -160,13 +170,22 @@ function renderUsers(users) {
                         <td style="padding: 15px;">${formatDate(user.created_at)}</td>
                         <td style="padding: 15px;">
                             ${user.id !== currentUser.id ? `
-                                <button
-                                    class="btn btn-danger"
-                                    onclick="deleteUser(${user.id}, '${user.username}')"
-                                    style="padding: 8px 16px; font-size: 0.85rem;"
-                                >
-                                    Deletar
-                                </button>
+                                <div style="display: flex; gap: 8px;">
+                                    <button
+                                        class="btn btn-secondary"
+                                        onclick="openResetPasswordModal(${user.id}, '${user.username}')"
+                                        style="padding: 8px 16px; font-size: 0.85rem;"
+                                    >
+                                        🔑 Resetar Senha
+                                    </button>
+                                    <button
+                                        class="btn btn-danger"
+                                        onclick="deleteUser(${user.id}, '${user.username}')"
+                                        style="padding: 8px 16px; font-size: 0.85rem;"
+                                    >
+                                        🗑️ Deletar
+                                    </button>
+                                </div>
                             ` : `
                                 <span style="color: var(--gray); font-size: 0.85rem;">Você</span>
                             `}
@@ -246,11 +265,98 @@ async function deleteUser(userId, username) {
     }
 }
 
+// ==================== RESETAR SENHA ====================
+
+// Abrir modal de resetar senha
+function openResetPasswordModal(userId, username) {
+    currentResetUserId = userId;
+    resetUsernameSpan.textContent = username;
+    resetNewPasswordInput.value = '';
+    resetConfirmPasswordInput.value = '';
+    resetPasswordModal.classList.add('active');
+}
+
+// Fechar modal de resetar senha
+function closeResetPasswordModal() {
+    resetPasswordModal.classList.remove('active');
+    currentResetUserId = null;
+    resetNewPasswordInput.value = '';
+    resetConfirmPasswordInput.value = '';
+}
+
+// Resetar senha do usuário
+async function resetUserPassword() {
+    if (!currentResetUserId) return;
+
+    const newPassword = resetNewPasswordInput.value;
+    const confirmPassword = resetConfirmPasswordInput.value;
+
+    // Validações
+    if (!newPassword || !confirmPassword) {
+        showNotification('Por favor, preencha todos os campos.', 'error');
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        showNotification('A nova senha deve ter pelo menos 6 caracteres.', 'error');
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        showNotification('As senhas não coincidem.', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/api/users/${currentResetUserId}/reset-password`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({ newPassword })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showNotification(data.message || 'Senha resetada com sucesso!', 'success');
+            closeResetPasswordModal();
+        } else {
+            showNotification(data.message || 'Erro ao resetar senha.', 'error');
+        }
+    } catch (error) {
+        console.error('Erro ao resetar senha:', error);
+        showNotification('Erro ao resetar senha.', 'error');
+    }
+}
+
 // ==================== EVENT LISTENERS ====================
 
 refreshBtn.addEventListener('click', () => {
     loadUsers();
     showNotification('Atualizado!', 'success');
+});
+
+// Modal de resetar senha
+resetPasswordModalClose.addEventListener('click', closeResetPasswordModal);
+cancelResetPasswordBtn.addEventListener('click', closeResetPasswordModal);
+
+resetPasswordModal.addEventListener('click', (e) => {
+    if (e.target === resetPasswordModal) {
+        closeResetPasswordModal();
+    }
+});
+
+saveResetPasswordBtn.addEventListener('click', resetUserPassword);
+
+// Enter nos campos de senha
+resetNewPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') resetUserPassword();
+});
+
+resetConfirmPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') resetUserPassword();
 });
 
 // ==================== INICIALIZAÇÃO ====================

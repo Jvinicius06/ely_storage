@@ -29,6 +29,15 @@ const editDescriptionInput = document.getElementById('editDescriptionInput');
 const saveTagsBtn = document.getElementById('saveTagsBtn');
 const cancelTagsBtn = document.getElementById('cancelTagsBtn');
 
+// Modal de trocar senha
+const changePasswordModal = document.getElementById('changePasswordModal');
+const changePasswordModalClose = document.getElementById('changePasswordModalClose');
+const currentPasswordInput = document.getElementById('currentPasswordInput');
+const newPasswordInput = document.getElementById('newPasswordInput');
+const confirmPasswordInput = document.getElementById('confirmPasswordInput');
+const savePasswordBtn = document.getElementById('savePasswordBtn');
+const cancelPasswordBtn = document.getElementById('cancelPasswordBtn');
+
 // Variável global para armazenar o ID do arquivo sendo editado
 let currentEditingFileId = null;
 
@@ -516,6 +525,73 @@ function closeEditTagsModal() {
     currentEditingFileId = null;
 }
 
+// ==================== TROCAR SENHA ====================
+
+// Abrir modal de trocar senha
+function openChangePasswordModal() {
+    currentPasswordInput.value = '';
+    newPasswordInput.value = '';
+    confirmPasswordInput.value = '';
+    changePasswordModal.classList.add('active');
+}
+
+// Fechar modal de trocar senha
+function closeChangePasswordModal() {
+    changePasswordModal.classList.remove('active');
+    currentPasswordInput.value = '';
+    newPasswordInput.value = '';
+    confirmPasswordInput.value = '';
+}
+
+// Trocar senha
+async function changePassword() {
+    const currentPassword = currentPasswordInput.value;
+    const newPassword = newPasswordInput.value;
+    const confirmPassword = confirmPasswordInput.value;
+
+    // Validações
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        showNotification('Por favor, preencha todos os campos.', 'error');
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        showNotification('A nova senha deve ter pelo menos 6 caracteres.', 'error');
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        showNotification('As senhas não coincidem.', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/api/auth/change-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                currentPassword,
+                newPassword
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showNotification('Senha alterada com sucesso!', 'success');
+            closeChangePasswordModal();
+        } else {
+            showNotification(data.message || 'Erro ao trocar senha.', 'error');
+        }
+    } catch (error) {
+        console.error('Erro ao trocar senha:', error);
+        showNotification('Erro ao trocar senha.', 'error');
+    }
+}
+
 // ==================== EVENT LISTENERS ====================
 
 // Click na área de upload
@@ -596,6 +672,33 @@ editTagsModal.addEventListener('click', (e) => {
 
 // Salvar tags editadas
 saveTagsBtn.addEventListener('click', saveEditedTags);
+
+// Fechar modal de trocar senha
+changePasswordModalClose.addEventListener('click', closeChangePasswordModal);
+
+cancelPasswordBtn.addEventListener('click', closeChangePasswordModal);
+
+changePasswordModal.addEventListener('click', (e) => {
+    if (e.target === changePasswordModal) {
+        closeChangePasswordModal();
+    }
+});
+
+// Salvar nova senha
+savePasswordBtn.addEventListener('click', changePassword);
+
+// Enter nos campos de senha para submeter
+currentPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') changePassword();
+});
+
+newPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') changePassword();
+});
+
+confirmPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') changePassword();
+});
 
 // ==================== INICIALIZAÇÃO ====================
 

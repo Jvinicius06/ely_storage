@@ -82,6 +82,41 @@
         </div>
     </div>
 
+    <!-- Modal de Resetar Senha -->
+    <div class="modal" id="resetPasswordModal">
+        <div class="modal-content">
+            <span class="modal-close" id="resetPasswordModalClose">&times;</span>
+            <h2>Resetar Senha do Usuário</h2>
+            <p style="margin: 15px 0; color: var(--gray);">
+                Você está prestes a resetar a senha do usuário <strong id="resetUsername"></strong>.
+            </p>
+            <div class="edit-form">
+                <div class="form-group">
+                    <label for="resetNewPasswordInput">🔑 Nova Senha:</label>
+                    <input
+                        type="password"
+                        id="resetNewPasswordInput"
+                        placeholder="Digite a nova senha (mín. 6 caracteres)"
+                        required
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="resetConfirmPasswordInput">🔑 Confirmar Nova Senha:</label>
+                    <input
+                        type="password"
+                        id="resetConfirmPasswordInput"
+                        placeholder="Digite a nova senha novamente"
+                        required
+                    >
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="saveResetPasswordBtn">Resetar Senha</button>
+                    <button class="btn btn-secondary" id="cancelResetPasswordBtn">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/admin.js"></script>
 </body>
 </html>

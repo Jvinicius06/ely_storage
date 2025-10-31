@@ -16,6 +16,9 @@
                 <span style="color: white; font-weight: 600;">
                     Olá, <span id="currentUser">-</span>!
                 </span>
+                <button class="btn btn-secondary" id="changePasswordBtn" onclick="openChangePasswordModal()">
+                    🔑 Trocar Senha
+                </button>
                 <button class="btn btn-secondary" id="adminBtn" style="display: none;" onclick="window.location.href='/admin.html'">
                     👥 Admin
                 </button>
@@ -151,6 +154,47 @@
                 <div class="form-actions">
                     <button class="btn btn-primary" id="saveTagsBtn">Salvar</button>
                     <button class="btn btn-secondary" id="cancelTagsBtn">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Trocar Senha -->
+    <div class="modal" id="changePasswordModal">
+        <div class="modal-content">
+            <span class="modal-close" id="changePasswordModalClose">&times;</span>
+            <h2>Trocar Senha</h2>
+            <div class="edit-form">
+                <div class="form-group">
+                    <label for="currentPasswordInput">🔒 Senha Atual:</label>
+                    <input
+                        type="password"
+                        id="currentPasswordInput"
+                        placeholder="Digite sua senha atual"
+                        required
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="newPasswordInput">🔑 Nova Senha:</label>
+                    <input
+                        type="password"
+                        id="newPasswordInput"
+                        placeholder="Digite a nova senha (mín. 6 caracteres)"
+                        required
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="confirmPasswordInput">🔑 Confirmar Nova Senha:</label>
+                    <input
+                        type="password"
+                        id="confirmPasswordInput"
+                        placeholder="Digite a nova senha novamente"
+                        required
+                    >
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="savePasswordBtn">Alterar Senha</button>
+                    <button class="btn btn-secondary" id="cancelPasswordBtn">Cancelar</button>
                 </div>
             </div>
         </div>

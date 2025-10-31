@@ -203,6 +203,63 @@ fastify.get('/api/auth/me', {
   }
 });
 
+// Trocar senha do usuário logado
+fastify.post('/api/auth/change-password', {
+  preHandler: requireAuth
+}, async (request, reply) => {
+  try {
+    const { currentPassword, newPassword } = request.body;
+
+    if (!currentPassword || !newPassword) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Senha atual e nova senha são obrigatórias.'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'A nova senha deve ter pelo menos 6 caracteres.'
+      });
+    }
+
+    // Buscar usuário com senha hash
+    const user = dbOperations.getUserByUsername(request.session.username);
+
+    if (!user) {
+      return reply.code(404).send({
+        error: 'Not Found',
+        message: 'Usuário não encontrado.'
+      });
+    }
+
+    // Verificar senha atual
+    const isValidPassword = dbOperations.verifyPassword(currentPassword, user.password_hash);
+
+    if (!isValidPassword) {
+      return reply.code(401).send({
+        error: 'Unauthorized',
+        message: 'Senha atual incorreta.'
+      });
+    }
+
+    // Atualizar senha
+    dbOperations.updateUserPassword(request.session.userId, newPassword);
+
+    return {
+      success: true,
+      message: 'Senha alterada com sucesso!'
+    };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao trocar senha.'
+    });
+  }
+});
+
 // ==================== GERENCIAMENTO DE USUÁRIOS ====================
 
 // Criar usuário (apenas admin)
@@ -303,6 +360,53 @@ fastify.delete('/api/users/:id', {
     return reply.code(500).send({
       error: 'Internal Server Error',
       message: 'Erro ao deletar usuário.'
+    });
+  }
+});
+
+// Resetar senha de usuário (apenas admin)
+fastify.patch('/api/users/:id/reset-password', {
+  preHandler: requireAdmin
+}, async (request, reply) => {
+  try {
+    const { id } = request.params;
+    const { newPassword } = request.body;
+
+    if (!newPassword) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Nova senha é obrigatória.'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'A nova senha deve ter pelo menos 6 caracteres.'
+      });
+    }
+
+    const user = dbOperations.getUserById(id);
+
+    if (!user) {
+      return reply.code(404).send({
+        error: 'Not Found',
+        message: 'Usuário não encontrado.'
+      });
+    }
+
+    // Atualizar senha
+    dbOperations.updateUserPassword(id, newPassword);
+
+    return {
+      success: true,
+      message: `Senha do usuário ${user.username} foi resetada com sucesso!`
+    };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao resetar senha.'
     });
   }
 });
