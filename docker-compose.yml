@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  ely-storage:
+    build: .
+    container_name: ely-storage
+    ports:
+      - "3001:3000"
+    environment:
+      - PORT=3000
+      - BASE_URL=http://localhost:3001
+      - API_KEY=dev-api-key-12345
+      - DISCORD_WEBHOOK_URL=
+      - MAX_FILE_SIZE_MB=1000
+    volumes:
+      # Bind mount da pasta config para persistência de dados
+      - ./config:/app/config
+    restart: unless-stopped
+    networks:
+      - ely-network
+
+networks:
+  ely-network:
+    driver: bridge

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ely Storage - Upload de Arquivos</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>📦 Ely Storage</h1>
+            <p>Sistema de Upload para FiveM</p>
+            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
+                <span style="color: white; font-weight: 600;">
+                    Olá, <span id="currentUser">-</span>!
+                </span>
+                <button class="btn btn-secondary" id="adminBtn" style="display: none;" onclick="window.location.href='/admin.html'">
+                    👥 Admin
+                </button>
+                <button class="btn btn-danger" onclick="logout()">
+                    🚪 Sair
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats -->
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <span class="stat-value" id="totalFiles">0</span>
+                <span class="stat-label">Arquivos</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="totalSize">0 MB</span>
+                <span class="stat-label">Tamanho Total</span>
+            </div>
+        </div>
+
+        <!-- Upload Area -->
+        <div class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <p class="upload-text">Arraste arquivos aqui ou clique para selecionar</p>
+                <p class="upload-hint">Suporta imagens, vídeos e áudios</p>
+                <input type="file" id="fileInput" multiple hidden>
+            </div>
+
+            <!-- Tags e Descrição -->
+            <div class="upload-meta-section">
+                <div class="form-group">
+                    <label for="tagsInput">🏷️ Tags (separadas por vírgula):</label>
+                    <input
+                        type="text"
+                        id="tagsInput"
+                        placeholder="Ex: fotos da loja, carros, áudios rp"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="descriptionInput">📝 Descrição (opcional):</label>
+                    <input
+                        type="text"
+                        id="descriptionInput"
+                        placeholder="Adicione uma descrição para o arquivo"
+                    >
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-container" id="progressContainer" style="display: none;">
+            <div class="progress-bar" id="progressBar"></div>
+            <span class="progress-text" id="progressText">0%</span>
+        </div>
+
+        <!-- Files Grid -->
+        <div class="files-section">
+            <div class="section-header">
+                <h2>Arquivos</h2>
+                <button class="btn btn-secondary" id="refreshBtn">🔄 Atualizar</button>
+            </div>
+
+            <!-- Filtros -->
+            <div class="filters-section">
+                <div class="filter-group">
+                    <label>🔍 Buscar por nome:</label>
+                    <input type="text" id="filterSearch" placeholder="Nome do arquivo...">
+                </div>
+                <div class="filter-group">
+                    <label>📁 Tipo:</label>
+                    <select id="filterType">
+                        <option value="">Todos</option>
+                        <option value="image">Imagens</option>
+                        <option value="video">Vídeos</option>
+                        <option value="audio">Áudios</option>
+                        <option value="other">Outros</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>🏷️ Tag:</label>
+                    <select id="filterTag">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <button class="btn btn-primary" id="applyFilters">Aplicar Filtros</button>
+                    <button class="btn btn-secondary" id="clearFilters">Limpar</button>
+                </div>
+            </div>
+
+            <div class="files-grid" id="filesGrid">
+                <!-- Arquivos serão carregados aqui -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Preview -->
+    <div class="modal" id="previewModal">
+        <div class="modal-content">
+            <span class="modal-close" id="modalClose">&times;</span>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Editar Tags -->
+    <div class="modal" id="editTagsModal">
+        <div class="modal-content">
+            <span class="modal-close" id="editTagsModalClose">&times;</span>
+            <h2>Editar Tags e Descrição</h2>
+            <div class="edit-form">
+                <div class="form-group">
+                    <label for="editTagsInput">🏷️ Tags (separadas por vírgula):</label>
+                    <input
+                        type="text"
+                        id="editTagsInput"
+                        placeholder="Ex: fotos da loja, carros, áudios rp"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="editDescriptionInput">📝 Descrição:</label>
+                    <textarea
+                        id="editDescriptionInput"
+                        rows="3"
+                        placeholder="Adicione uma descrição para o arquivo"
+                    ></textarea>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="saveTagsBtn">Salvar</button>
+                    <button class="btn btn-secondary" id="cancelTagsBtn">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>
