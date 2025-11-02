@@ -138,14 +138,53 @@ export async function downloadFile(url) {
       timeout: 30000 // 30 segundos
     });
 
-    // Extrair nome do arquivo da URL
+    // Extrair nome do arquivo da URL e remover query params
     const urlParts = url.split('/');
-    const originalName = urlParts[urlParts.length - 1].split('?')[0];
+    let fileName = urlParts[urlParts.length - 1].split('?')[0];
+
+    // Pegar MIME type do header
+    const mimeType = response.headers['content-type'] || 'application/octet-stream';
+
+    // Mapear MIME type para extensão correta
+    const mimeToExt = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'image/svg+xml': 'svg',
+      'video/mp4': 'mp4',
+      'video/webm': 'webm',
+      'video/quicktime': 'mov',
+      'audio/mpeg': 'mp3',
+      'audio/ogg': 'ogg',
+      'audio/wav': 'wav',
+      'application/pdf': 'pdf',
+      'application/zip': 'zip'
+    };
+
+    // Determinar extensão correta
+    let extension = mimeToExt[mimeType];
+
+    // Se não temos um mapeamento, tentar extrair da URL
+    if (!extension) {
+      const urlExt = fileName.split('.').pop().toLowerCase();
+      // Validar se a extensão parece válida (2-4 caracteres alfabéticos)
+      if (urlExt && /^[a-z]{2,4}$/.test(urlExt)) {
+        extension = urlExt;
+      } else {
+        extension = 'bin'; // fallback
+      }
+    }
+
+    // Nome original para referência (sem a extensão estranha)
+    const originalName = fileName.includes('.') ? fileName.split('.')[0] + '.' + extension : fileName + '.' + extension;
 
     return {
       stream: response.data,
       originalName,
-      mimeType: response.headers['content-type'] || 'application/octet-stream',
+      extension,
+      mimeType,
       size: parseInt(response.headers['content-length'] || '0')
     };
   } catch (error) {
@@ -158,10 +197,10 @@ export async function downloadFile(url) {
  */
 export async function uploadToStorage(fileData, baseUrl, uploadedBy = null) {
   try {
-    // Gerar nome único
+    // Gerar nome único usando a extensão correta
     const timestamp = Date.now();
     const random = randomBytes(8).toString('hex');
-    const extension = fileData.originalName.split('.').pop();
+    const extension = fileData.extension || fileData.originalName.split('.').pop();
     const storedName = `${timestamp}-${random}.${extension}`;
 
     // Caminho de upload
