@@ -15,6 +15,7 @@ import { dbOperations } from './database.js';
 import { authMiddleware } from './middleware/auth.js';
 import { requireAuth, requireAdmin } from './middleware/session.js';
 import { sendDiscordNotification } from './services/discord.js';
+import { migrateChannel } from './services/discord-migrator.js';
 
 // Configuração de paths
 const __filename = fileURLToPath(import.meta.url);
@@ -726,6 +727,77 @@ fastify.patch('/api/files/:id/tags', {
     return reply.code(500).send({
       error: 'Internal Server Error',
       message: 'Erro ao atualizar tags.'
+    });
+  }
+});
+
+// ==================== MIGRAÇÃO DO DISCORD ====================
+
+// Migrar canal/thread do Discord para o storage e repostar em outro canal/thread
+fastify.post('/api/discord/migrate-channel', {
+  preHandler: requireAuth
+}, async (request, reply) => {
+  try {
+    const { botToken, sourceChannelId, targetWebhookUrl, sourceThreadId, targetThreadId } = request.body;
+
+    if (!botToken || !sourceChannelId || !targetWebhookUrl) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'botToken, sourceChannelId e targetWebhookUrl são obrigatórios.'
+      });
+    }
+
+    // Validar formato do webhook
+    if (!targetWebhookUrl.includes('discord.com/api/webhooks/')) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'URL de webhook inválida.'
+      });
+    }
+
+    // Iniciar migração em background e enviar progresso via SSE
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+
+    const sendProgress = (data) => {
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      const stats = await migrateChannel(
+        botToken,
+        sourceChannelId,
+        targetWebhookUrl,
+        BASE_URL,
+        request.session.userId,
+        sendProgress,
+        sourceThreadId || null,
+        targetThreadId || null
+      );
+
+      // Enviar estatísticas finais
+      sendProgress({
+        status: 'completed',
+        message: 'Migração concluída com sucesso!',
+        stats
+      });
+
+      reply.raw.end();
+    } catch (migrationError) {
+      sendProgress({
+        status: 'error',
+        message: migrationError.message
+      });
+      reply.raw.end();
+    }
+
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao iniciar migração.',
+      details: error.message
     });
   }
 });

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migração Discord - Ely Storage</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Migração do Discord</h1>
+            <p>Migre arquivos de um canal do Discord para o storage local</p>
+            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center;">
+                <button class="btn btn-secondary" onclick="window.location.href='/'">Voltar</button>
+                <button class="btn btn-danger" onclick="logout()">Sair</button>
+            </div>
+        </header>
+
+        <!-- User Info -->
+        <div class="stats">
+            <div class="stat-card">
+                <span class="stat-value" id="currentUser">-</span>
+                <span class="stat-label">Usuário Logado</span>
+            </div>
+        </div>
+
+        <!-- Migration Form -->
+        <div class="upload-section">
+            <h2 style="margin-bottom: 20px;">Configurar Migração</h2>
+
+            <form id="migrationForm" class="upload-meta-section">
+                <div class="form-group">
+                    <label for="botToken">Token do Bot:</label>
+                    <input
+                        type="password"
+                        id="botToken"
+                        placeholder="Seu token de bot do Discord"
+                        required
+                    >
+                    <small style="color: var(--gray); display: block; margin-top: 5px;">
+                        O token do bot do Discord (necessário para ler mensagens)
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="sourceChannelId">ID do Canal de Origem:</label>
+                    <input
+                        type="text"
+                        id="sourceChannelId"
+                        placeholder="1234567890123456789"
+                        required
+                    >
+                    <small style="color: var(--gray); display: block; margin-top: 5px;">
+                        O ID do canal do qual você quer copiar as mensagens
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="sourceThreadId">ID da Thread/Postagem (Opcional - para Fóruns):</label>
+                    <input
+                        type="text"
+                        id="sourceThreadId"
+                        placeholder="1234567890123456789 (deixe vazio para canal normal)"
+                    >
+                    <small style="color: var(--gray); display: block; margin-top: 5px;">
+                        Se for um fórum, coloque o ID da postagem/thread aqui. Deixe vazio para canais normais.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="targetWebhookUrl">URL do Webhook do Canal de Destino:</label>
+                    <input
+                        type="text"
+                        id="targetWebhookUrl"
+                        placeholder="https://discord.com/api/webhooks/..."
+                        required
+                    >
+                    <small style="color: var(--gray); display: block; margin-top: 5px;">
+                        A URL do webhook do canal onde as mensagens serão repostadas
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="targetThreadId">ID da Thread de Destino (Opcional - para Fóruns):</label>
+                    <input
+                        type="text"
+                        id="targetThreadId"
+                        placeholder="1234567890123456789 (deixe vazio para canal normal)"
+                    >
+                    <small style="color: var(--gray); display: block; margin-top: 5px;">
+                        Se quiser postar em uma thread/fórum específico, coloque o ID aqui. Deixe vazio para postar no canal normal.
+                    </small>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="startMigrationBtn">
+                    🚀 Iniciar Migração
+                </button>
+            </form>
+
+            <!-- Info Card -->
+            <div style="background: var(--light-gray); padding: 20px; border-radius: 8px; margin-top: 20px;">
+                <h3 style="margin-top: 0;">ℹ️ Como funciona:</h3>
+                <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+                    <li>O sistema busca todas as mensagens do canal/thread de origem usando o bot token</li>
+                    <li>Identifica todos os arquivos (imagens, vídeos, anexos) nas mensagens e embeds</li>
+                    <li>Baixa cada arquivo do CDN do Discord</li>
+                    <li>Faz upload para o storage local</li>
+                    <li>Reposta as mensagens no canal de destino via webhook com os novos links</li>
+                    <li>Mantém o nome de usuário e avatar originais</li>
+                </ol>
+
+                <h4 style="margin-top: 15px; margin-bottom: 10px;">📋 Para Fóruns/Threads:</h4>
+                <ul style="margin: 0 0 0 20px; padding: 0; line-height: 1.8;">
+                    <li><strong>Origem:</strong>
+                        <ul style="margin: 5px 0 0 20px;">
+                            <li>ID do Canal: O ID do canal de fórum</li>
+                            <li>ID da Thread de Origem: O ID da postagem específica</li>
+                        </ul>
+                    </li>
+                    <li><strong>Destino:</strong>
+                        <ul style="margin: 5px 0 0 20px;">
+                            <li>Webhook URL: Webhook do canal que contém a thread</li>
+                            <li>ID da Thread de Destino: O ID da thread onde postar</li>
+                        </ul>
+                    </li>
+                    <li>O bot precisa ter acesso às threads</li>
+                </ul>
+
+                <p style="margin-bottom: 0; margin-top: 15px; color: var(--warning);">
+                    <strong>Atenção:</strong> O processo pode levar vários minutos dependendo da quantidade de mensagens e arquivos. O bot precisa ter permissão de leitura no canal/thread de origem.
+                </p>
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progressSection" class="files-section" style="display: none;">
+            <div class="section-header">
+                <h2>Progresso da Migração</h2>
+            </div>
+
+            <div style="background: white; padding: 20px; border-radius: 8px;">
+                <!-- Status Message -->
+                <div id="statusMessage" style="padding: 15px; background: var(--light-gray); border-radius: 8px; margin-bottom: 20px;">
+                    <strong id="statusText">Iniciando...</strong>
+                </div>
+
+                <!-- Progress Bar -->
+                <div id="progressBarContainer" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span id="progressLabel">Processando mensagens...</span>
+                        <span id="progressCount">0/0</span>
+                    </div>
+                    <div style="width: 100%; background: var(--light-gray); border-radius: 8px; height: 30px; overflow: hidden;">
+                        <div id="progressBar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+
+                <!-- Activity Log -->
+                <div style="margin-top: 20px;">
+                    <h3>Log de Atividades:</h3>
+                    <div id="activityLog" style="background: var(--light-gray); padding: 15px; border-radius: 8px; max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem;">
+                        <!-- Log entries will be added here -->
+                    </div>
+                </div>
+
+                <!-- Statistics (shown after completion) -->
+                <div id="statsSection" style="display: none; margin-top: 20px;">
+                    <h3>Estatísticas Finais:</h3>
+                    <div class="stats">
+                        <div class="stat-card">
+                            <span class="stat-value" id="statTotalMessages">0</span>
+                            <span class="stat-label">Mensagens Totais</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="statMessagesWithFiles">0</span>
+                            <span class="stat-label">Com Arquivos</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="statFilesProcessed">0</span>
+                            <span class="stat-label">Arquivos Processados</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="statFilesUploaded">0</span>
+                            <span class="stat-label">Arquivos Enviados</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="statMessagesPosted">0</span>
+                            <span class="stat-label">Mensagens Postadas</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="statErrors">0</span>
+                            <span class="stat-label">Erros</span>
+                        </div>
+                    </div>
+
+                    <!-- Errors Details -->
+                    <div id="errorsDetails" style="display: none; margin-top: 20px;">
+                        <h4 style="color: var(--danger);">Detalhes dos Erros:</h4>
+                        <div id="errorsList" style="background: var(--light-gray); padding: 15px; border-radius: 8px; font-size: 0.9rem;">
+                            <!-- Error details will be added here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reset Button -->
+                <div style="margin-top: 20px; text-align: center;">
+                    <button id="resetBtn" class="btn btn-secondary" onclick="resetMigration()" style="display: none;">
+                        🔄 Nova Migração
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/discord-migrator.js"></script>
+</body>
+</html>
