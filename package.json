@@ -5,8 +5,9 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "start": "NODE_ENV=production node --expose-gc --max-old-space-size=4096 src/server.js",
+    "dev": "node --watch --expose-gc src/server.js",
+    "start:basic": "node src/server.js"
   },
   "keywords": [
     "storage",

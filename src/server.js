@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyCors from '@fastify/cors';
-import fastifySession from '@fastify/session';
+import fastifySecureSession from '@fastify/secure-session';
 import fastifyCookie from '@fastify/cookie';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -14,8 +14,10 @@ import { randomBytes } from 'crypto';
 import { dbOperations } from './database.js';
 import { authMiddleware } from './middleware/auth.js';
 import { requireAuth, requireAdmin } from './middleware/session.js';
+import { rateLimiter, uploadRateLimiter } from './middleware/rate-limiter.js';
 import { sendDiscordNotification } from './services/discord.js';
-import { migrateChannel } from './services/discord-migrator.js';
+// Migração Discord removida (não utilizada) para economizar memória
+// import { migrateChannel } from './services/discord-migrator.js';
 
 // Configuração de paths
 const __filename = fileURLToPath(import.meta.url);
@@ -31,12 +33,43 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key-change-thi
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '100');
 
-// Criar instância do Fastify
+// Criar instância do Fastify com logging otimizado
+const isProduction = process.env.NODE_ENV === 'production';
+
 const fastify = Fastify({
-  logger: true,
-  bodyLimit: MAX_FILE_SIZE_MB * 1024 * 1024, // Converter MB para bytes
-  disableRequestLogging: false,
-  requestIdLogLabel: 'reqId'
+  logger: isProduction
+    ? {
+        // Produção: apenas erros e warnings
+        level: 'warn',
+        serializers: {
+          req: (req) => ({
+            method: req.method,
+            url: req.url,
+            // Não logar headers ou body para economizar memória
+          }),
+          res: (res) => ({
+            statusCode: res.statusCode
+          })
+        }
+      }
+    : {
+        // Desenvolvimento: logs completos
+        level: 'info',
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            translateTime: 'HH:MM:ss Z',
+            ignore: 'pid,hostname'
+          }
+        }
+      },
+  bodyLimit: MAX_FILE_SIZE_MB * 1024 * 1024,
+  disableRequestLogging: isProduction, // Desabilitar em produção
+  requestIdLogLabel: 'reqId',
+  // Otimizações adicionais
+  ignoreTrailingSlash: true,
+  trustProxy: true, // Se atrás de proxy/load balancer
+  caseSensitive: false
 });
 
 // Registrar plugins
@@ -47,13 +80,22 @@ await fastify.register(fastifyCors, {
 
 await fastify.register(fastifyCookie);
 
-await fastify.register(fastifySession, {
-  secret: SESSION_SECRET,
+// Usar secure-session: armazena sessão no cookie (não na memória do servidor!)
+// Isso economiza MUITA memória com milhares de usuários
+const sessionKey = SESSION_SECRET.length >= 32
+  ? Buffer.from(SESSION_SECRET.substring(0, 32))
+  : Buffer.concat([Buffer.from(SESSION_SECRET), Buffer.alloc(32)]).slice(0, 32);
+
+await fastify.register(fastifySecureSession, {
+  key: sessionKey,
   cookie: {
-    secure: false, // Mudar para true em produção com HTTPS
+    path: '/',
     httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 * 7 // 7 dias
-  }
+    secure: isProduction, // HTTPS em produção
+    maxAge: 60 * 60 * 24 * 7 // 7 dias em segundos
+  },
+  // Não armazena nada na memória do servidor!
+  cookieName: 'session'
 });
 
 await fastify.register(fastifyMultipart, {
@@ -70,15 +112,31 @@ await fastify.register(fastifyStatic, {
   prefix: '/'
 });
 
-// Servir arquivos de upload (sem compressão) da pasta config
+// Servir arquivos de upload com otimizações de performance
 await fastify.register(fastifyStatic, {
   root: join(__dirname, '..', 'config', 'uploads'),
   prefix: '/download/',
   decorateReply: false,
-  setHeaders: (res, path) => {
-    // Desabilitar compressão para downloads
-    res.setHeader('Content-Encoding', 'identity');
-  }
+  // Enviar arquivos diretamente sem buffer (streaming)
+  send: {
+    maxAge: 86400000, // Cache de 24 horas no cliente (1 dia)
+    cacheControl: true,
+    dotfiles: 'deny', // Segurança: não servir arquivos ocultos
+    etag: true, // ETag para validação de cache
+    lastModified: true, // Last-Modified header
+    immutable: true, // Arquivos são imutáveis (nomes únicos)
+  },
+  preCompressed: false, // Não buscar versões pré-comprimidas
+  setHeaders: (res, path, stat) => {
+    // Cache agressivo (arquivos são imutáveis devido a nomes únicos)
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    // Permitir cross-origin (se necessário)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    // Sugerir download ao invés de abrir no navegador (opcional)
+    // res.setHeader('Content-Disposition', 'attachment');
+  },
+  // Rate limiting via hooks
+  preHandler: rateLimiter
 });
 
 // Gerar nome único para arquivo
@@ -141,10 +199,10 @@ fastify.post('/api/auth/login', async (request, reply) => {
       });
     }
 
-    // Criar sessão
-    request.session.userId = user.id;
-    request.session.username = user.username;
-    request.session.userRole = user.role;
+    // Criar sessão (secure-session usa set())
+    request.session.set('userId', user.id);
+    request.session.set('username', user.username);
+    request.session.set('userRole', user.role);
 
     return {
       success: true,
@@ -178,7 +236,7 @@ fastify.get('/api/auth/me', {
   preHandler: requireAuth
 }, async (request, reply) => {
   try {
-    const user = dbOperations.getUserById(request.session.userId);
+    const user = dbOperations.getUserById(request.session.get('userId'));
 
     if (!user) {
       return reply.code(404).send({
@@ -226,7 +284,7 @@ fastify.post('/api/auth/change-password', {
     }
 
     // Buscar usuário com senha hash
-    const user = dbOperations.getUserByUsername(request.session.username);
+    const user = dbOperations.getUserByUsername(request.session.get('username'));
 
     if (!user) {
       return reply.code(404).send({
@@ -246,7 +304,7 @@ fastify.post('/api/auth/change-password', {
     }
 
     // Atualizar senha
-    dbOperations.updateUserPassword(request.session.userId, newPassword);
+    dbOperations.updateUserPassword(request.session.get('userId'), newPassword);
 
     return {
       success: true,
@@ -334,7 +392,7 @@ fastify.delete('/api/users/:id', {
     const { id } = request.params;
 
     // Não permitir deletar o próprio usuário
-    if (parseInt(id) === request.session.userId) {
+    if (parseInt(id) === request.session.get('userId')) {
       return reply.code(400).send({
         error: 'Bad Request',
         message: 'Você não pode deletar seu próprio usuário.'
@@ -414,16 +472,19 @@ fastify.patch('/api/users/:id/reset-password', {
 
 // Rota de upload (protegida por autenticação de usuário ou API Key)
 fastify.post('/api/upload', {
-  preHandler: async function(request, reply) {
-    // Verificar se tem API Key (para integração externa)
-    const apiKey = request.headers['x-api-key'] || request.query.apiKey;
-    if (apiKey === API_KEY) {
-      return; // API Key válida, continuar
-    }
+  preHandler: [
+    uploadRateLimiter,
+    async function(request, reply) {
+      // Verificar se tem API Key (para integração externa)
+      const apiKey = request.headers['x-api-key'] || request.query.apiKey;
+      if (apiKey === API_KEY) {
+        return; // API Key válida, continuar
+      }
 
-    // Caso contrário, verificar autenticação de usuário
-    return requireAuth(request, reply, () => {});
-  }
+      // Caso contrário, verificar autenticação de usuário
+      return requireAuth(request, reply, () => {});
+    }
+  ]
 }, async (request, reply) => {
   try {
     const data = await request.file();
@@ -446,7 +507,7 @@ fastify.post('/api/upload', {
     const description = data.fields?.description?.value || '';
 
     // Pegar ID do usuário logado (se houver)
-    const uploadedBy = request.session?.userId || null;
+    const uploadedBy = request.session.get('userId') || null;
 
     // Log para debug
     fastify.log.info(`Recebendo arquivo: ${originalName}, MIME: ${mimeType}, Encoding: ${data.encoding}, Usuario: ${uploadedBy}`);
@@ -511,13 +572,26 @@ fastify.post('/api/upload', {
   }
 });
 
-// Listar todos os arquivos
+// Listar todos os arquivos (com paginação)
 fastify.get('/api/files', async (request, reply) => {
   try {
-    const files = dbOperations.getAllFiles();
+    const limit = parseInt(request.query.limit) || 100;
+    const offset = parseInt(request.query.offset) || 0;
+
+    // Validar limites
+    const validLimit = Math.min(Math.max(limit, 1), 500); // Máximo 500 por página
+    const validOffset = Math.max(offset, 0);
+
+    const files = dbOperations.getAllFiles(validLimit, validOffset);
+    const total = dbOperations.countAllFiles();
+
     return {
       success: true,
       count: files.length,
+      total,
+      limit: validLimit,
+      offset: validOffset,
+      hasMore: (validOffset + validLimit) < total,
       files
     };
   } catch (error) {
@@ -571,8 +645,8 @@ fastify.delete('/api/files/:id', {
     }
 
     // Verificar permissões: admin pode deletar qualquer arquivo, usuário comum só seus próprios
-    const isAdmin = request.session.userRole === 'admin';
-    const isOwner = file.uploaded_by === request.session.userId;
+    const isAdmin = request.session.get('userRole') === 'admin';
+    const isOwner = file.uploaded_by === request.session.get('userId');
 
     if (!isAdmin && !isOwner) {
       return reply.code(403).send({
@@ -703,8 +777,8 @@ fastify.patch('/api/files/:id/tags', {
     }
 
     // Verificar permissões: admin pode editar qualquer arquivo, usuário comum só seus próprios
-    const isAdmin = request.session.userRole === 'admin';
-    const isOwner = file.uploaded_by === request.session.userId;
+    const isAdmin = request.session.get('userRole') === 'admin';
+    const isOwner = file.uploaded_by === request.session.get('userId');
 
     if (!isAdmin && !isOwner) {
       return reply.code(403).send({
@@ -732,75 +806,60 @@ fastify.patch('/api/files/:id/tags', {
 });
 
 // ==================== MIGRAÇÃO DO DISCORD ====================
+// REMOVIDO: Código de migração Discord não utilizado
+// Economiza ~2-3GB de RAM ao não carregar o módulo discord-migrator.js
+// Se precisar reativar, descomente o import acima e esta rota
 
-// Migrar canal/thread do Discord para o storage e repostar em outro canal/thread
-fastify.post('/api/discord/migrate-channel', {
-  preHandler: requireAuth
-}, async (request, reply) => {
+// ==================== OTIMIZAÇÃO DE MEMÓRIA ====================
+
+// Forçar garbage collection periodicamente (se disponível)
+if (global.gc) {
+  setInterval(() => {
+    global.gc();
+    fastify.log.debug('Garbage collection manual executado');
+  }, 30 * 60 * 1000); // A cada 30 minutos
+} else {
+  console.warn('⚠️  Garbage collection manual não disponível. Execute com: node --expose-gc src/server.js');
+}
+
+// Otimizar banco de dados periodicamente
+setInterval(() => {
   try {
-    const { botToken, sourceChannelId, targetWebhookUrl, sourceThreadId, targetThreadId } = request.body;
-
-    if (!botToken || !sourceChannelId || !targetWebhookUrl) {
-      return reply.code(400).send({
-        error: 'Bad Request',
-        message: 'botToken, sourceChannelId e targetWebhookUrl são obrigatórios.'
-      });
-    }
-
-    // Validar formato do webhook
-    if (!targetWebhookUrl.includes('discord.com/api/webhooks/')) {
-      return reply.code(400).send({
-        error: 'Bad Request',
-        message: 'URL de webhook inválida.'
-      });
-    }
-
-    // Iniciar migração em background e enviar progresso via SSE
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
-    reply.raw.setHeader('Connection', 'keep-alive');
-
-    const sendProgress = (data) => {
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    try {
-      const stats = await migrateChannel(
-        botToken,
-        sourceChannelId,
-        targetWebhookUrl,
-        BASE_URL,
-        request.session.userId,
-        sendProgress,
-        sourceThreadId || null,
-        targetThreadId || null
-      );
-
-      // Enviar estatísticas finais
-      sendProgress({
-        status: 'completed',
-        message: 'Migração concluída com sucesso!',
-        stats
-      });
-
-      reply.raw.end();
-    } catch (migrationError) {
-      sendProgress({
-        status: 'error',
-        message: migrationError.message
-      });
-      reply.raw.end();
-    }
-
+    dbOperations.checkpoint(); // Liberar memória do WAL
+    fastify.log.debug('Database checkpoint executado');
   } catch (error) {
-    fastify.log.error(error);
-    return reply.code(500).send({
-      error: 'Internal Server Error',
-      message: 'Erro ao iniciar migração.',
-      details: error.message
-    });
+    fastify.log.warn('Erro ao executar checkpoint:', error.message);
   }
-});
+}, 60 * 60 * 1000); // A cada 1 hora
+
+// VACUUM completo uma vez por dia (horário de menor uso)
+setInterval(() => {
+  try {
+    const hour = new Date().getHours();
+    // Executar apenas entre 3h e 5h da manhã
+    if (hour >= 3 && hour < 5) {
+      fastify.log.info('Executando VACUUM do banco de dados...');
+      dbOperations.vacuum();
+      fastify.log.info('VACUUM concluído com sucesso');
+    }
+  } catch (error) {
+    fastify.log.warn('Erro ao executar VACUUM:', error.message);
+  }
+}, 60 * 60 * 1000); // Verificar a cada 1 hora
+
+// Monitorar uso de memória
+setInterval(() => {
+  const usage = process.memoryUsage();
+  const usedMB = Math.round(usage.heapUsed / 1024 / 1024);
+  const totalMB = Math.round(usage.heapTotal / 1024 / 1024);
+  const rss = Math.round(usage.rss / 1024 / 1024);
+
+  if (usedMB > 1024) { // Alerta se usar mais de 1GB
+    fastify.log.warn(`⚠️  Alto uso de memória: ${usedMB}MB / ${totalMB}MB (RSS: ${rss}MB)`);
+  } else {
+    fastify.log.debug(`Memória: ${usedMB}MB / ${totalMB}MB (RSS: ${rss}MB)`);
+  }
+}, 10 * 60 * 1000); // A cada 10 minutos
 
 // ==================== INICIAR SERVIDOR ====================
 

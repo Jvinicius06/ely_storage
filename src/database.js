@@ -12,6 +12,18 @@ const __dirname = dirname(__filename);
 // Cria/abre o banco de dados na pasta config
 const db = new Database(join(__dirname, '..', 'config', 'storage.db'));
 
+// ==================== OTIMIZAÇÕES DE PERFORMANCE ====================
+// WAL mode: melhor concorrência e performance
+db.pragma('journal_mode = WAL');
+// Cache de 64MB para queries frequentes
+db.pragma('cache_size = -64000');
+// Sincronização normal (balanço entre segurança e performance)
+db.pragma('synchronous = NORMAL');
+// Memory-mapped I/O para leituras rápidas
+db.pragma('mmap_size = 268435456'); // 256MB
+// Temp store em memória para operações temporárias
+db.pragma('temp_store = MEMORY');
+
 // Cria a tabela de usuários se não existir
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -60,6 +72,15 @@ try {
 } catch (e) {
   // Coluna já existe
 }
+
+// ==================== ÍNDICES PARA PERFORMANCE ====================
+// Criar índices se não existirem
+db.exec(`CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at DESC)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_files_file_type ON files(file_type)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_files_stored_name ON files(stored_name)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_files_tags ON files(tags)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
 
 // Criar usuário admin inicial se não existir
 const adminUsername = process.env.ADMIN_USERNAME || 'admin';
@@ -149,8 +170,8 @@ export const dbOperations = {
     return result.lastInsertRowid;
   },
 
-  // Buscar todos os arquivos (com informações do usuário)
-  getAllFiles() {
+  // Buscar todos os arquivos (com paginação para evitar sobrecarga de memória)
+  getAllFiles(limit = 100, offset = 0) {
     const stmt = db.prepare(`
       SELECT
         f.*,
@@ -159,8 +180,15 @@ export const dbOperations = {
       FROM files f
       LEFT JOIN users u ON f.uploaded_by = u.id
       ORDER BY f.uploaded_at DESC
+      LIMIT ? OFFSET ?
     `);
-    return stmt.all();
+    return stmt.all(limit, offset);
+  },
+
+  // Contar total de arquivos (para paginação)
+  countAllFiles() {
+    const stmt = db.prepare('SELECT COUNT(*) as count FROM files');
+    return stmt.get().count;
   },
 
   // Buscar arquivo por ID (com informações do usuário)
@@ -303,6 +331,25 @@ export const dbOperations = {
     return Object.entries(tagCounts)
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count);
+  },
+
+  // ==================== MANUTENÇÃO E OTIMIZAÇÃO ====================
+
+  // Executar VACUUM para otimizar banco (rodar periodicamente)
+  vacuum() {
+    db.exec('VACUUM');
+    db.exec('ANALYZE');
+  },
+
+  // Otimizar banco (menos agressivo que VACUUM)
+  optimize() {
+    db.exec('PRAGMA optimize');
+    db.exec('ANALYZE');
+  },
+
+  // Checkpoint do WAL (liberar memória)
+  checkpoint() {
+    db.pragma('wal_checkpoint(TRUNCATE)');
   }
 };
 
