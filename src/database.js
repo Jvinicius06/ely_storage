@@ -244,7 +244,7 @@ export const dbOperations = {
     return stmt.run(tags || '', description || '', id);
   },
 
-  // Buscar arquivos com filtros (com informações do usuário)
+  // Buscar arquivos com filtros (com informações do usuário e paginação)
   searchFiles(filters = {}) {
     let query = `
       SELECT
@@ -289,8 +289,58 @@ export const dbOperations = {
 
     query += ' ORDER BY f.uploaded_at DESC';
 
+    // Paginação
+    if (filters.limit) {
+      query += ' LIMIT ?';
+      params.push(filters.limit);
+    }
+
+    if (filters.offset) {
+      query += ' OFFSET ?';
+      params.push(filters.offset);
+    }
+
     const stmt = db.prepare(query);
     return stmt.all(...params);
+  },
+
+  // Contar total de arquivos com filtros (para paginação)
+  countSearchFiles(filters = {}) {
+    let query = `
+      SELECT COUNT(*) as count
+      FROM files f
+      WHERE 1=1
+    `;
+    const params = [];
+
+    // Aplicar mesmos filtros (sem paginação)
+    if (filters.fileType) {
+      query += ' AND f.file_type = ?';
+      params.push(filters.fileType);
+    }
+
+    if (filters.tag) {
+      query += ' AND f.tags LIKE ?';
+      params.push(`%${filters.tag}%`);
+    }
+
+    if (filters.search) {
+      query += ' AND f.original_name LIKE ?';
+      params.push(`%${filters.search}%`);
+    }
+
+    if (filters.startDate) {
+      query += ' AND f.uploaded_at >= ?';
+      params.push(filters.startDate);
+    }
+
+    if (filters.endDate) {
+      query += ' AND f.uploaded_at <= ?';
+      params.push(filters.endDate);
+    }
+
+    const stmt = db.prepare(query);
+    return stmt.get(...params).count;
   },
 
   // Obter todas as tags únicas

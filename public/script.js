@@ -14,6 +14,12 @@ const modalBody = document.getElementById('modalBody');
 const currentUserSpan = document.getElementById('currentUser');
 const adminBtn = document.getElementById('adminBtn');
 
+// Paginação
+let currentPage = 0;
+let limitPerPage = 50; // 50 arquivos por página
+let totalFiles = 0;
+let hasMoreFiles = false;
+
 // Filtros
 const filterSearch = document.getElementById('filterSearch');
 const filterType = document.getElementById('filterType');
@@ -219,14 +225,20 @@ async function uploadFile(file) {
 
 // ==================== LISTAGEM ====================
 
-// Carregar arquivos
-async function loadFiles() {
+// Carregar arquivos com paginação
+async function loadFiles(page = 0) {
     try {
-        const response = await fetch(`${API_URL}/api/files`);
+        currentPage = page;
+        const offset = page * limitPerPage;
+
+        const response = await fetch(`${API_URL}/api/files?limit=${limitPerPage}&offset=${offset}`);
         const data = await response.json();
 
         if (data.success) {
+            totalFiles = data.total;
+            hasMoreFiles = data.hasMore;
             renderFiles(data.files);
+            renderPagination();
         }
     } catch (error) {
         console.error('Erro ao carregar arquivos:', error);
@@ -295,6 +307,72 @@ function renderFiles(files) {
             </div>
         `;
     }).join('');
+}
+
+// Renderizar controles de paginação
+function renderPagination() {
+    let paginationContainer = document.getElementById('paginationContainer');
+
+    // Criar container se não existir
+    if (!paginationContainer) {
+        paginationContainer = document.createElement('div');
+        paginationContainer.id = 'paginationContainer';
+        paginationContainer.className = 'pagination-container';
+        filesGrid.parentNode.appendChild(paginationContainer);
+    }
+
+    // Calcular informações
+    const startItem = currentPage * limitPerPage + 1;
+    const endItem = Math.min((currentPage + 1) * limitPerPage, totalFiles);
+    const totalPages = Math.ceil(totalFiles / limitPerPage);
+
+    if (totalFiles === 0) {
+        paginationContainer.innerHTML = '';
+        return;
+    }
+
+    paginationContainer.innerHTML = `
+        <div class="pagination-info">
+            Mostrando ${startItem}-${endItem} de ${totalFiles} arquivos
+        </div>
+        <div class="pagination-buttons">
+            <button
+                class="btn btn-secondary"
+                ${currentPage === 0 ? 'disabled' : ''}
+                onclick="loadFiles(0)"
+                title="Primeira página"
+            >
+                ⏮️ Primeira
+            </button>
+            <button
+                class="btn btn-secondary"
+                ${currentPage === 0 ? 'disabled' : ''}
+                onclick="loadFiles(${currentPage - 1})"
+                title="Página anterior"
+            >
+                ⬅️ Anterior
+            </button>
+            <span class="pagination-current">
+                Página ${currentPage + 1} de ${totalPages}
+            </span>
+            <button
+                class="btn btn-secondary"
+                ${!hasMoreFiles ? 'disabled' : ''}
+                onclick="loadFiles(${currentPage + 1})"
+                title="Próxima página"
+            >
+                Próxima ➡️
+            </button>
+            <button
+                class="btn btn-secondary"
+                ${!hasMoreFiles ? 'disabled' : ''}
+                onclick="loadFiles(${totalPages - 1})"
+                title="Última página"
+            >
+                Última ⏭️
+            </button>
+        </div>
+    `;
 }
 
 // Obter preview do arquivo
@@ -433,24 +511,44 @@ async function loadTags() {
     }
 }
 
-// Buscar arquivos com filtros
-async function searchFiles() {
+// Buscar arquivos com filtros e paginação
+async function searchFiles(page = 0) {
     try {
+        currentPage = page;
+        const offset = page * limitPerPage;
+
         const search = filterSearch.value.trim();
         const type = filterType.value;
         const tag = filterTag.value;
 
         const params = new URLSearchParams();
+        params.append('limit', limitPerPage);
+        params.append('offset', offset);
         if (search) params.append('search', search);
         if (type) params.append('fileType', type);
         if (tag) params.append('tag', tag);
 
-        const url = params.toString() ? `${API_URL}/api/search?${params.toString()}` : `${API_URL}/api/files`;
+        // Se tem filtros, usa /api/search, senão usa /api/files
+        const hasFilters = search || type || tag;
+        const url = hasFilters
+            ? `${API_URL}/api/search?${params.toString()}`
+            : `${API_URL}/api/files?${params.toString()}`;
+
         const response = await fetch(url);
         const data = await response.json();
 
         if (data.success) {
+            // Se é busca com filtros, calcular total e hasMore manualmente
+            if (hasFilters) {
+                totalFiles = data.count || data.files.length;
+                hasMoreFiles = data.files.length >= limitPerPage;
+            } else {
+                totalFiles = data.total;
+                hasMoreFiles = data.hasMore;
+            }
+
             renderFiles(data.files);
+            renderPagination();
         }
     } catch (error) {
         console.error('Erro ao buscar arquivos:', error);

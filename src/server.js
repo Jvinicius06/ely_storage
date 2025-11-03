@@ -696,10 +696,10 @@ fastify.get('/api/stats', async (request, reply) => {
   }
 });
 
-// Buscar/filtrar arquivos
+// Buscar/filtrar arquivos (com paginação)
 fastify.get('/api/search', async (request, reply) => {
   try {
-    const { fileType, tag, search, startDate, endDate } = request.query;
+    const { fileType, tag, search, startDate, endDate, limit, offset } = request.query;
 
     const filters = {};
     if (fileType) filters.fileType = fileType;
@@ -708,11 +708,25 @@ fastify.get('/api/search', async (request, reply) => {
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
 
+    // Paginação
+    const parsedLimit = parseInt(limit) || 100;
+    const parsedOffset = parseInt(offset) || 0;
+    const validLimit = Math.min(Math.max(parsedLimit, 1), 500);
+    const validOffset = Math.max(parsedOffset, 0);
+
+    filters.limit = validLimit;
+    filters.offset = validOffset;
+
     const files = dbOperations.searchFiles(filters);
+    const total = dbOperations.countSearchFiles(filters); // Contar total sem limite
 
     return {
       success: true,
       count: files.length,
+      total,
+      limit: validLimit,
+      offset: validOffset,
+      hasMore: (validOffset + validLimit) < total,
       filters,
       files
     };
