@@ -1,17 +1,38 @@
-# Use Node.js 18 Alpine para imagem menor
-FROM node:18-alpine
+# Stage 1: Build
+FROM node:18-alpine AS builder
 
-# Instalar dependências de build necessárias para sodium-native e bcrypt
-RUN apk add --no-cache python3 make g++ libsodium-dev
+# Instalar dependências de build
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    libsodium-dev
 
-# Criar diretório da aplicação
 WORKDIR /app
 
-# Copiar package.json e package-lock.json
+# Copiar arquivos de dependências
 COPY package*.json ./
 
-# Instalar dependências
-RUN npm ci --only=production
+# Instalar todas as dependências (incluindo dev para rebuild)
+RUN npm ci
+
+# Rebuild módulos nativos
+RUN npm rebuild bcrypt --build-from-source
+RUN npm rebuild sodium-native --build-from-source
+
+# Stage 2: Runtime
+FROM node:18-alpine
+
+# Instalar apenas runtime dependencies
+RUN apk add --no-cache libsodium
+
+WORKDIR /app
+
+# Copiar node_modules compilados do builder
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copiar package.json
+COPY package*.json ./
 
 # Copiar código da aplicação
 COPY . .
