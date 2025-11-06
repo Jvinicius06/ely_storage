@@ -66,10 +66,12 @@ const fastify = Fastify({
   bodyLimit: MAX_FILE_SIZE_MB * 1024 * 1024,
   disableRequestLogging: isProduction, // Desabilitar em produção
   requestIdLogLabel: 'reqId',
-  // Otimizações adicionais
-  ignoreTrailingSlash: true,
   trustProxy: true, // Se atrás de proxy/load balancer
-  caseSensitive: false
+  // Otimizações adicionais
+  routerOptions: {
+    ignoreTrailingSlash: true,
+    caseSensitive: false
+  }
 });
 
 // Registrar plugins
@@ -91,8 +93,9 @@ await fastify.register(fastifySecureSession, {
   cookie: {
     path: '/',
     httpOnly: true,
-    secure: isProduction, // HTTPS em produção
-    maxAge: 60 * 60 * 24 * 7 // 7 dias em segundos
+    secure: false, // Desabilitar HTTPS temporariamente para debug
+    sameSite: 'lax', // Importante para cookies funcionarem
+    maxAge: 60 * 60 * 24 * 7 * 1000 // 7 dias em MILISSEGUNDOS
   },
   // Não armazena nada na memória do servidor!
   cookieName: 'session'

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node --check:*)"
+      "Bash(node --check:*)",
+      "Bash(npm install)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []
