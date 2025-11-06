@@ -15,6 +15,7 @@ import { dbOperations } from './database.js';
 import { authMiddleware } from './middleware/auth.js';
 import { requireAuth, requireAdmin } from './middleware/session.js';
 import { rateLimiter, uploadRateLimiter } from './middleware/rate-limiter.js';
+import { hotCacheMiddleware, getCacheStats } from './middleware/hot-cache.js';
 import { sendDiscordNotification } from './services/discord.js';
 // Migração Discord removida (não utilizada) para economizar memória
 // import { migrateChannel } from './services/discord-migrator.js';
@@ -32,6 +33,7 @@ const API_KEY = process.env.API_KEY;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key-change-this-in-production';
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '100');
+const ENABLE_HOT_CACHE = process.env.ENABLE_HOT_CACHE === 'true'; // Cache para arquivos populares
 
 // Criar instância do Fastify com logging otimizado
 const isProduction = process.env.NODE_ENV === 'production';
@@ -138,8 +140,8 @@ await fastify.register(fastifyStatic, {
     // Sugerir download ao invés de abrir no navegador (opcional)
     // res.setHeader('Content-Disposition', 'attachment');
   },
-  // Rate limiting via hooks
-  preHandler: rateLimiter
+  // Middlewares: Hot Cache (se habilitado) + Rate Limiting
+  preHandler: ENABLE_HOT_CACHE ? [hotCacheMiddleware, rateLimiter] : rateLimiter
 });
 
 // Gerar nome único para arquivo
@@ -163,10 +165,13 @@ function getFileType(mimeType) {
 // Rota de health check
 fastify.get('/api/health', async (request, reply) => {
   const stats = dbOperations.getStats();
+  const cacheStats = ENABLE_HOT_CACHE ? getCacheStats() : null;
+
   return {
     status: 'ok',
     uptime: process.uptime(),
-    stats
+    stats,
+    cache: cacheStats
   };
 });
 
@@ -890,6 +895,8 @@ const start = async () => {
     console.log(`🔑 API Key configurada: ${API_KEY ? 'Sim' : 'Não'}`);
     console.log(`💬 Discord Webhook: ${DISCORD_WEBHOOK_URL ? 'Configurado' : 'Não configurado'}`);
     console.log(`📦 Tamanho máximo: ${MAX_FILE_SIZE_MB}MB`);
+    console.log(`🔥 Hot Cache: ${ENABLE_HOT_CACHE ? '✅ Ativado (512MB)' : '❌ Desativado'}`);
+    console.log(`🌍 Ambiente: ${isProduction ? 'Produção' : 'Desenvolvimento'}`);
     console.log('================================================\n');
     console.log('📖 Endpoints disponíveis:');
     console.log(`   GET  ${BASE_URL}/              - Interface Web`);

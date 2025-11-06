@@ -72,6 +72,29 @@
 
 **Economia estimada**: ~1-2GB
 
+### 9. **Hot Cache para Arquivos Populares** 🔥 (NOVO!)
+- Cache em memória para os 100k downloads/dia
+- Arquivos mais baixados ficam em RAM (até 512MB)
+- Cache automático após 3 downloads
+- Evição automática de arquivos menos usados
+- **Ideal para seu cenário: 600 arquivos com downloads repetidos**
+
+**Como funciona**:
+```
+1º download: MISS - busca disco (lento)
+2º download: MISS - busca disco
+3º download: MISS - busca disco + adiciona ao cache
+4º+ downloads: HIT - serve da RAM (ultra rápido!)
+```
+
+**Benefícios**:
+- ⚡ 100-1000x mais rápido (RAM vs disco)
+- 🔥 Reduz downloads simultâneos "lentos"
+- 💾 Apenas ~512MB de uso adicional
+- 🎯 Cacheia automaticamente os mais populares
+
+**Economia estimada**: ~5-10GB (reduz buffers de stream)
+
 ---
 
 ## 📈 Economia Total Estimada
@@ -86,9 +109,10 @@
 | FastifyStatic | 3-5GB |
 | Código removido | 2-3GB |
 | GC Manual | 1-2GB |
-| **TOTAL** | **12-20GB** |
+| **Hot Cache** 🔥 | **5-10GB** |
+| **TOTAL** | **17-30GB** |
 
-**Consumo esperado após otimizações**: **2-6GB** (redução de 70-85%)
+**Consumo esperado após otimizações**: **2-4GB** (redução de 75-87%)
 
 ---
 
@@ -99,11 +123,19 @@
 npm install
 ```
 
-### 2. Configurar Variável de Ambiente
+### 2. Configurar Variáveis de Ambiente
 Adicione ao `.env`:
 ```env
 NODE_ENV=production
+ENABLE_HOT_CACHE=true
 ```
+
+**Hot Cache**: Recomendado se você tem:
+- ✅ Poucos arquivos (menos de 10.000)
+- ✅ Muitos downloads repetidos
+- ✅ Memória RAM disponível (usa 512MB)
+
+Se tem milhões de arquivos únicos, deixe `ENABLE_HOT_CACHE=false`.
 
 ### 3. Iniciar com Otimizações
 ```bash
@@ -148,6 +180,41 @@ sqlite3 config/storage.db "PRAGMA journal_mode;"
 sqlite3 config/storage.db "PRAGMA cache_size;"
 # Deve retornar: -64000
 ```
+
+### Verificar Hot Cache (se habilitado)
+Acesse:
+```
+http://localhost:3000/api/health
+```
+
+Você verá:
+```json
+{
+  "status": "ok",
+  "uptime": 3600,
+  "stats": {...},
+  "cache": {
+    "totalCached": 15,
+    "totalSizeMB": "234.5",
+    "maxSizeMB": 512,
+    "utilizationPercent": "45.8",
+    "cachedFiles": [
+      {
+        "name": "arquivo-popular.jpg",
+        "size": 15728640,
+        "hits": 1245,
+        "lastAccess": "2025-01-03T..."
+      }
+    ],
+    "topDownloads": [...]
+  }
+}
+```
+
+**Interpretando**:
+- `totalCached`: Quantos arquivos estão em cache
+- `hits`: Quantas vezes foi servido do cache
+- `topDownloads`: Arquivos mais baixados (candidatos ao cache)
 
 ---
 
