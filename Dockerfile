@@ -1,6 +1,9 @@
 # Use Node.js 18 Alpine para imagem menor
 FROM node:18-alpine
 
+# Instalar dependências de build necessárias para sodium-native e bcrypt
+RUN apk add --no-cache python3 make g++ libsodium-dev
+
 # Criar diretório da aplicação
 WORKDIR /app
 
