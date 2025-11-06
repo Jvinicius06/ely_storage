@@ -2,7 +2,7 @@
 
 // Middleware para verificar se usuário está autenticado
 export function requireAuth(request, reply, done) {
-  const userId = request.session.get('userId');
+  const userId = request.session.userId;
   if (!userId) {
     return reply.code(401).send({
       error: 'Unauthorized',
@@ -14,8 +14,8 @@ export function requireAuth(request, reply, done) {
 
 // Middleware para verificar se usuário é admin
 export function requireAdmin(request, reply, done) {
-  const userId = request.session.get('userId');
-  const userRole = request.session.get('userRole');
+  const userId = request.session.userId;
+  const userRole = request.session.userRole;
 
   if (!userId) {
     return reply.code(401).send({

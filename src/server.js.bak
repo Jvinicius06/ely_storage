@@ -203,9 +203,9 @@ fastify.post('/api/auth/login', async (request, reply) => {
     }
 
     // Criar sessão (secure-session usa set())
-    request.session.userId = user.id;
-    request.session.username = user.username;
-    request.session.userRole = user.role;
+    request.session.set('userId', user.id);
+    request.session.set('username', user.username);
+    request.session.set('userRole', user.role);
 
     return {
       success: true,
@@ -239,7 +239,7 @@ fastify.get('/api/auth/me', {
   preHandler: requireAuth
 }, async (request, reply) => {
   try {
-    const user = dbOperations.getUserById(request.session.userId);
+    const user = dbOperations.getUserById(request.session.get('userId'));
 
     if (!user) {
       return reply.code(404).send({
@@ -287,7 +287,7 @@ fastify.post('/api/auth/change-password', {
     }
 
     // Buscar usuário com senha hash
-    const user = dbOperations.getUserByUsername(request.session.username);
+    const user = dbOperations.getUserByUsername(request.session.get('username'));
 
     if (!user) {
       return reply.code(404).send({
@@ -307,7 +307,7 @@ fastify.post('/api/auth/change-password', {
     }
 
     // Atualizar senha
-    dbOperations.updateUserPassword(request.session.userId, newPassword);
+    dbOperations.updateUserPassword(request.session.get('userId'), newPassword);
 
     return {
       success: true,
@@ -395,7 +395,7 @@ fastify.delete('/api/users/:id', {
     const { id } = request.params;
 
     // Não permitir deletar o próprio usuário
-    if (parseInt(id) === request.session.userId) {
+    if (parseInt(id) === request.session.get('userId')) {
       return reply.code(400).send({
         error: 'Bad Request',
         message: 'Você não pode deletar seu próprio usuário.'
@@ -510,7 +510,7 @@ fastify.post('/api/upload', {
     const description = data.fields?.description?.value || '';
 
     // Pegar ID do usuário logado (se houver)
-    const uploadedBy = request.session.userId || null;
+    const uploadedBy = request.session.get('userId') || null;
 
     // Log para debug
     fastify.log.info(`Recebendo arquivo: ${originalName}, MIME: ${mimeType}, Encoding: ${data.encoding}, Usuario: ${uploadedBy}`);
@@ -648,8 +648,8 @@ fastify.delete('/api/files/:id', {
     }
 
     // Verificar permissões: admin pode deletar qualquer arquivo, usuário comum só seus próprios
-    const isAdmin = request.session.userRole === 'admin';
-    const isOwner = file.uploaded_by === request.session.userId;
+    const isAdmin = request.session.get('userRole') === 'admin';
+    const isOwner = file.uploaded_by === request.session.get('userId');
 
     if (!isAdmin && !isOwner) {
       return reply.code(403).send({
@@ -794,8 +794,8 @@ fastify.patch('/api/files/:id/tags', {
     }
 
     // Verificar permissões: admin pode editar qualquer arquivo, usuário comum só seus próprios
-    const isAdmin = request.session.userRole === 'admin';
-    const isOwner = file.uploaded_by === request.session.userId;
+    const isAdmin = request.session.get('userRole') === 'admin';
+    const isOwner = file.uploaded_by === request.session.get('userId');
 
     if (!isAdmin && !isOwner) {
       return reply.code(403).send({

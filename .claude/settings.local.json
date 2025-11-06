@@ -3,7 +3,10 @@
     "allow": [
       "Bash(node --check:*)",
       "Bash(npm install)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(pkill:*)",
+      "Bash(NODE_ENV=production node:*)",
+      "Bash(node src/server.js:*)"
     ],
     "deny": [],
     "ask": []

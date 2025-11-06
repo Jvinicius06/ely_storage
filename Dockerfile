@@ -1,30 +1,23 @@
-# Stage 1: Build
-FROM node:18-alpine AS builder
+# Stage 1: Build (com dependências nativas para bcrypt e better-sqlite3)
+FROM node:18-bullseye-slim AS builder
 
-# Instalar dependências de build
-RUN apk add --no-cache \
+# Instalar dependências de build necessárias para bcrypt e better-sqlite3
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    libsodium-dev
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copiar arquivos de dependências
 COPY package*.json ./
 
-# Instalar todas as dependências (incluindo dev para rebuild)
-RUN npm ci
+# Instalar todas as dependências
+RUN npm ci --build-from-source
 
-# Rebuild módulos nativos
-RUN npm rebuild bcrypt --build-from-source
-RUN npm rebuild sodium-native --build-from-source
-
-# Stage 2: Runtime
-FROM node:18-alpine
-
-# Instalar apenas runtime dependencies
-RUN apk add --no-cache libsodium
+# Stage 2: Runtime (imagem final otimizada)
+FROM node:18-bullseye-slim
 
 WORKDIR /app
 
