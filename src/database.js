@@ -73,6 +73,37 @@ try {
   // Coluna já existe
 }
 
+// Adicionar colunas para conversão de vídeo
+try {
+  db.exec(`ALTER TABLE files ADD COLUMN converted_name TEXT DEFAULT NULL`);
+} catch (e) {
+  // Coluna já existe
+}
+
+try {
+  db.exec(`ALTER TABLE files ADD COLUMN converted_url TEXT DEFAULT NULL`);
+} catch (e) {
+  // Coluna já existe
+}
+
+try {
+  db.exec(`ALTER TABLE files ADD COLUMN conversion_status TEXT DEFAULT NULL`);
+} catch (e) {
+  // Coluna já existe
+}
+
+try {
+  db.exec(`ALTER TABLE files ADD COLUMN video_duration INTEGER DEFAULT NULL`);
+} catch (e) {
+  // Coluna já existe
+}
+
+try {
+  db.exec(`ALTER TABLE files ADD COLUMN video_metadata TEXT DEFAULT NULL`);
+} catch (e) {
+  // Coluna já existe
+}
+
 // ==================== ÍNDICES PARA PERFORMANCE ====================
 // Criar índices se não existirem
 db.exec(`CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at DESC)`);
@@ -362,6 +393,34 @@ export const dbOperations = {
   getFilesByTag(tag) {
     const stmt = db.prepare('SELECT * FROM files WHERE tags LIKE ? ORDER BY uploaded_at DESC');
     return stmt.all(`%${tag}%`);
+  },
+
+  // ==================== CONVERSÃO DE VÍDEO ====================
+
+  // Atualizar status de conversão de vídeo
+  updateConversionStatus(id, status) {
+    const stmt = db.prepare('UPDATE files SET conversion_status = ? WHERE id = ?');
+    return stmt.run(status, id);
+  },
+
+  // Atualizar arquivo convertido completo
+  updateConvertedFile(id, convertedName, convertedUrl, duration, metadata) {
+    const stmt = db.prepare(`
+      UPDATE files
+      SET converted_name = ?, converted_url = ?, conversion_status = ?, video_duration = ?, video_metadata = ?
+      WHERE id = ?
+    `);
+    return stmt.run(convertedName, convertedUrl, 'completed', duration, JSON.stringify(metadata), id);
+  },
+
+  // Buscar vídeos pendentes de conversão
+  getPendingConversions() {
+    const stmt = db.prepare(`
+      SELECT * FROM files
+      WHERE file_type = 'video' AND conversion_status = 'pending'
+      ORDER BY uploaded_at ASC
+    `);
+    return stmt.all();
   },
 
   // Obter estatísticas por tag

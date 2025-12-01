@@ -246,6 +246,10 @@ async function loadFiles(page = 0) {
     }
 }
 
+// Variável global para rastrear se há vídeos em conversão
+let hasVideosConverting = false;
+let autoRefreshInterval = null;
+
 // Renderizar arquivos
 function renderFiles(files) {
     if (files.length === 0) {
@@ -258,7 +262,21 @@ function renderFiles(files) {
                 <p>Faça upload de arquivos usando a área acima</p>
             </div>
         `;
+        stopAutoRefresh();
         return;
+    }
+
+    // Verificar se há vídeos em conversão (pending ou processing)
+    hasVideosConverting = files.some(file =>
+        file.file_type === 'video' &&
+        (file.conversion_status === 'pending' || file.conversion_status === 'processing')
+    );
+
+    // Iniciar auto-refresh se houver vídeos convertendo
+    if (hasVideosConverting) {
+        startAutoRefresh();
+    } else {
+        stopAutoRefresh();
     }
 
     filesGrid.innerHTML = files.map(file => {
@@ -268,22 +286,58 @@ function renderFiles(files) {
 
         // Verificar se o usuário pode deletar/editar este arquivo
         const canModify = currentUser && (currentUser.role === 'admin' || file.uploaded_by === currentUser.id);
+        const isAdmin = currentUser && currentUser.role === 'admin';
 
         // Informação de quem fez upload
         const uploaderInfo = file.uploaded_by_username
             ? `Enviado por: ${file.uploaded_by_username}`
             : 'Enviado via API';
 
+        // Status de conversão de vídeo
+        let conversionStatusHTML = '';
+        let downloadLink = file.download_url;
+        let videoInfoHTML = '';
+
+        if (file.file_type === 'video') {
+            // Determinar qual link usar
+            if (file.converted_url && file.conversion_status === 'completed') {
+                // Vídeo convertido - usuários normais veem apenas o convertido
+                downloadLink = isAdmin ? file.download_url : file.converted_url;
+            }
+
+            // Badge de status de conversão
+            if (file.conversion_status === 'pending') {
+                conversionStatusHTML = '<span class="conversion-badge conversion-pending">🕐 Na Fila</span>';
+            } else if (file.conversion_status === 'processing') {
+                conversionStatusHTML = '<span class="conversion-badge conversion-processing">⚙️ Convertendo...</span>';
+            } else if (file.conversion_status === 'completed') {
+                conversionStatusHTML = '<span class="conversion-badge conversion-completed">✅ Otimizado</span>';
+
+                // Informações do vídeo
+                if (file.video_duration) {
+                    const minutes = Math.floor(file.video_duration / 60);
+                    const seconds = file.video_duration % 60;
+                    videoInfoHTML = `<div class="file-meta" style="margin-top: 3px; font-size: 0.75rem; color: #888;">
+                        🎬 ${minutes}:${seconds.toString().padStart(2, '0')}
+                    </div>`;
+                }
+            } else if (file.conversion_status === 'failed') {
+                conversionStatusHTML = '<span class="conversion-badge conversion-failed">❌ Erro na Conversão</span>';
+            }
+        }
+
         return `
             <div class="file-card">
                 <div class="file-preview" onclick="openPreview(${file.id})">
                     ${preview}
+                    ${conversionStatusHTML ? `<div class="conversion-overlay">${conversionStatusHTML}</div>` : ''}
                 </div>
                 <div class="file-info">
                     <div class="file-name" title="${file.original_name}">${file.original_name}</div>
                     <div class="file-meta">
                         ${formatFileSize(file.size)} • ${formatDate(file.uploaded_at)}
                     </div>
+                    ${videoInfoHTML}
                     <div class="file-meta" style="margin-top: 5px; font-size: 0.8rem; color: var(--primary);">
                         ${uploaderInfo}
                     </div>
@@ -291,9 +345,14 @@ function renderFiles(files) {
                         ${tagsHTML}
                     </div>
                     <div class="file-actions">
-                        <button class="btn btn-primary" onclick="copyLink('${file.download_url}')">
-                            📋 Link
+                        <button class="btn btn-primary" onclick="copyLink('${downloadLink}')">
+                            📋 ${file.file_type === 'video' && file.converted_url && !isAdmin ? 'MP4' : 'Link'}
                         </button>
+                        ${isAdmin && file.file_type === 'video' && file.converted_url ? `
+                            <button class="btn btn-secondary" onclick="copyLink('${file.converted_url}')" title="Link do MP4 convertido">
+                                📋 MP4
+                            </button>
+                        ` : ''}
                         ${canModify ? `
                             <button class="btn btn-secondary" onclick="openEditTagsModal(${file.id})">
                                 🏷️ Tags
@@ -812,6 +871,37 @@ async function init() {
 
 // Carregar dados ao iniciar
 init();
+
+// ==================== AUTO-REFRESH PARA VÍDEOS EM CONVERSÃO ====================
+
+// Iniciar auto-refresh (atualizar a cada 10 segundos)
+function startAutoRefresh() {
+    // Se já existe um intervalo, não criar outro
+    if (autoRefreshInterval) {
+        return;
+    }
+
+    console.log('🔄 Auto-refresh ativado para vídeos em conversão');
+
+    autoRefreshInterval = setInterval(() => {
+        console.log('🔄 Atualizando status de conversão...');
+        loadFiles(currentPage);
+    }, 10000); // 10 segundos
+}
+
+// Parar auto-refresh
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        console.log('⏹️ Auto-refresh desativado');
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}
+
+// Limpar intervalo ao sair da página
+window.addEventListener('beforeunload', () => {
+    stopAutoRefresh();
+});
 
 // Adicionar estilos de animação
 const style = document.createElement('style');

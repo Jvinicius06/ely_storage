@@ -19,6 +19,11 @@ RUN npm ci --build-from-source
 # Stage 2: Runtime (imagem final otimizada)
 FROM node:18-bullseye-slim
 
+# Instalar FFmpeg para conversão de vídeos
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copiar node_modules compilados do builder

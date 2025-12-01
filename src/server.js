@@ -18,6 +18,7 @@ import { rateLimiter, uploadRateLimiter } from './middleware/rate-limiter.js';
 import { hotCacheMiddleware, getCacheStats } from './middleware/hot-cache.js';
 import { sendDiscordNotification } from './services/discord.js';
 import { migrateChannel } from './services/discord-migrator.js';
+import videoConverter from './services/video-converter.js';
 
 // Configuração de paths
 const __filename = fileURLToPath(import.meta.url);
@@ -111,6 +112,29 @@ await fastify.register(fastifyStatic, {
   prefix: '/'
 });
 
+// Hook para redirecionar vídeos para versões convertidas MP4
+fastify.addHook('onRequest', async (request, reply) => {
+  // Verificar se é uma requisição de download
+  if (request.url.startsWith('/download/')) {
+    const fileName = request.url.replace('/download/', '').split('?')[0];
+
+    // Buscar arquivo no banco de dados
+    const file = dbOperations.getFileByStoredName(fileName);
+
+    // Se for vídeo e tiver versão convertida, redirecionar para MP4
+    if (file && file.file_type === 'video' && file.converted_name && file.conversion_status === 'completed') {
+      // Redirecionar para versão convertida
+      const convertedPath = `/download/${file.converted_name}`;
+
+      // Se já está tentando acessar o convertido, não redirecionar (evitar loop)
+      if (fileName !== file.converted_name) {
+        fastify.log.info(`Redirecionando vídeo ${fileName} para versão convertida ${file.converted_name}`);
+        return reply.redirect(302, convertedPath);
+      }
+    }
+  }
+});
+
 // Servir arquivos de upload com otimizações de performance
 await fastify.register(fastifyStatic, {
   root: join(__dirname, '..', 'config', 'uploads'),
@@ -131,6 +155,8 @@ await fastify.register(fastifyStatic, {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     // Permitir cross-origin (se necessário)
     res.setHeader('Access-Control-Allow-Origin', '*');
+    // Suporte a Range requests para streaming de vídeo
+    res.setHeader('Accept-Ranges', 'bytes');
     // Sugerir download ao invés de abrir no navegador (opcional)
     // res.setHeader('Content-Disposition', 'attachment');
   },
@@ -542,6 +568,20 @@ fastify.post('/api/upload', {
       uploadedBy
     });
 
+    // Se for vídeo, adicionar à fila de conversão
+    let conversionStatus = null;
+    let convertedUrl = null;
+    if (fileType === 'video') {
+      // Marcar como pendente de conversão
+      dbOperations.updateConversionStatus(fileId, 'pending');
+      conversionStatus = 'pending';
+
+      // Adicionar à fila de conversão (assíncrono)
+      videoConverter.addToQueue(fileId, storedName, originalName);
+
+      fastify.log.info(`Vídeo adicionado à fila de conversão: ${originalName} (ID: ${fileId})`);
+    }
+
     // Enviar notificação para Discord
     await sendDiscordNotification(DISCORD_WEBHOOK_URL, {
       originalName,
@@ -561,6 +601,8 @@ fastify.post('/api/upload', {
         mimeType,
         size: fileSize,
         downloadUrl,
+        conversionStatus,
+        convertedUrl,
         uploadedAt: new Date().toISOString()
       }
     });
@@ -627,6 +669,78 @@ fastify.get('/api/files/:id', async (request, reply) => {
     return reply.code(500).send({
       error: 'Internal Server Error',
       message: 'Erro ao buscar arquivo.'
+    });
+  }
+});
+
+// Checar status de conversão de vídeo
+fastify.get('/api/files/:id/conversion-status', async (request, reply) => {
+  try {
+    const { id } = request.params;
+    const file = dbOperations.getFileById(id);
+
+    if (!file) {
+      return reply.code(404).send({
+        error: 'Not Found',
+        message: 'Arquivo não encontrado.'
+      });
+    }
+
+    if (file.file_type !== 'video') {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Este arquivo não é um vídeo.'
+      });
+    }
+
+    // Parsear metadados se existir
+    let metadata = null;
+    if (file.video_metadata) {
+      try {
+        metadata = JSON.parse(file.video_metadata);
+      } catch (e) {
+        // Ignorar erro de parse
+      }
+    }
+
+    return {
+      success: true,
+      file: {
+        id: file.id,
+        originalName: file.original_name,
+        conversionStatus: file.conversion_status,
+        convertedUrl: file.converted_url,
+        videoDuration: file.video_duration,
+        videoMetadata: metadata
+      }
+    };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao buscar status de conversão.'
+    });
+  }
+});
+
+// Ver fila de conversão (admin only)
+fastify.get('/api/conversion-queue', {
+  preHandler: requireAdmin
+}, async (request, reply) => {
+  try {
+    const queueStatus = videoConverter.getQueueStatus();
+    const processingJobs = videoConverter.getProcessingJobs();
+
+    return {
+      success: true,
+      queue: queueStatus,
+      processingJobs
+    };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao buscar fila de conversão.'
     });
   }
 });
