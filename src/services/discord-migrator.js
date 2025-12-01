@@ -195,7 +195,7 @@ export async function downloadFile(url) {
 /**
  * Fazer upload de arquivo para o storage
  */
-export async function uploadToStorage(fileData, baseUrl, uploadedBy = null) {
+export async function uploadToStorage(fileData, baseUrl, uploadedBy = null, customTags = null) {
   try {
     // Gerar nome único usando a extensão correta
     const timestamp = Date.now();
@@ -223,6 +223,12 @@ export async function uploadToStorage(fileData, baseUrl, uploadedBy = null) {
     else if (fileData.mimeType.startsWith('video/')) fileType = 'video';
     else if (fileData.mimeType.startsWith('audio/')) fileType = 'audio';
 
+    // Preparar tags (tag padrão + tags customizadas)
+    let finalTags = 'discord-migration';
+    if (customTags && customTags.trim()) {
+      finalTags = `discord-migration, ${customTags.trim()}`;
+    }
+
     // Salvar no banco
     const fileId = dbOperations.insertFile({
       originalName: fileData.originalName,
@@ -231,7 +237,7 @@ export async function uploadToStorage(fileData, baseUrl, uploadedBy = null) {
       mimeType: fileData.mimeType,
       size: fileData.size,
       downloadUrl,
-      tags: 'discord-migration',
+      tags: finalTags,
       description: 'Migrado automaticamente do Discord',
       uploadedBy
     });
@@ -331,7 +337,7 @@ function escapeRegex(string) {
 /**
  * Processar migração completa de um canal ou thread
  */
-export async function migrateChannel(botToken, sourceChannelId, targetWebhookUrl, baseUrl, uploadedBy, onProgress, sourceThreadId = null, targetThreadId = null) {
+export async function migrateChannel(botToken, sourceChannelId, targetWebhookUrl, baseUrl, uploadedBy, onProgress, sourceThreadId = null, targetThreadId = null, customTags = null) {
   try {
     // Buscar mensagens do canal/thread de origem
     const sourceType = sourceThreadId ? 'thread' : 'canal';
@@ -397,7 +403,7 @@ export async function migrateChannel(botToken, sourceChannelId, targetWebhookUrl
               const fileData = await downloadFile(url);
 
               // Upload para storage
-              const uploadResult = await uploadToStorage(fileData, baseUrl, uploadedBy);
+              const uploadResult = await uploadToStorage(fileData, baseUrl, uploadedBy, customTags);
 
               urlMap.set(url, uploadResult.downloadUrl);
               stats.filesUploaded++;

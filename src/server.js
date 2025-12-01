@@ -17,8 +17,7 @@ import { requireAuth, requireAdmin } from './middleware/session.js';
 import { rateLimiter, uploadRateLimiter } from './middleware/rate-limiter.js';
 import { hotCacheMiddleware, getCacheStats } from './middleware/hot-cache.js';
 import { sendDiscordNotification } from './services/discord.js';
-// Migração Discord removida (não utilizada) para economizar memória
-// import { migrateChannel } from './services/discord-migrator.js';
+import { migrateChannel } from './services/discord-migrator.js';
 
 // Configuração de paths
 const __filename = fileURLToPath(import.meta.url);
@@ -823,9 +822,63 @@ fastify.patch('/api/files/:id/tags', {
 });
 
 // ==================== MIGRAÇÃO DO DISCORD ====================
-// REMOVIDO: Código de migração Discord não utilizado
-// Economiza ~2-3GB de RAM ao não carregar o módulo discord-migrator.js
-// Se precisar reativar, descomente o import acima e esta rota
+
+fastify.post('/api/discord/migrate-channel', { preHandler: requireAuth }, async (request, reply) => {
+  try {
+    const { botToken, sourceChannelId, targetWebhookUrl, sourceThreadId, targetThreadId, customTags } = request.body;
+
+    // Validar campos obrigatórios
+    if (!botToken || !sourceChannelId || !targetWebhookUrl) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Bot token, source channel ID e target webhook URL são obrigatórios.'
+      });
+    }
+
+    const uploadedBy = request.session.user.username;
+
+    // Configurar resposta como stream de eventos (Server-Sent Events)
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
+
+    // Função para enviar eventos de progresso
+    const sendProgress = (data) => {
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Executar migração com callback de progresso
+    await migrateChannel(
+      botToken,
+      sourceChannelId,
+      targetWebhookUrl,
+      BASE_URL,
+      uploadedBy,
+      sendProgress,
+      sourceThreadId || null,
+      targetThreadId || null,
+      customTags || null
+    );
+
+    // Finalizar stream
+    reply.raw.end();
+
+  } catch (error) {
+    fastify.log.error(error);
+    // Se o stream já foi iniciado, enviar erro como evento
+    if (reply.raw.headersSent) {
+      reply.raw.write(`data: ${JSON.stringify({ status: 'error', message: error.message })}\n\n`);
+      reply.raw.end();
+    } else {
+      return reply.code(500).send({
+        error: 'Internal Server Error',
+        message: error.message
+      });
+    }
+  }
+});
 
 // ==================== OTIMIZAÇÃO DE MEMÓRIA ====================
 

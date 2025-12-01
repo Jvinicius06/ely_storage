@@ -5,6 +5,7 @@ const sourceChannelIdInput = document.getElementById('sourceChannelId');
 const sourceThreadIdInput = document.getElementById('sourceThreadId');
 const targetWebhookUrlInput = document.getElementById('targetWebhookUrl');
 const targetThreadIdInput = document.getElementById('targetThreadId');
+const customTagsInput = document.getElementById('customTags');
 const startMigrationBtn = document.getElementById('startMigrationBtn');
 const currentUserSpan = document.getElementById('currentUser');
 const progressSection = document.getElementById('progressSection');
@@ -195,7 +196,7 @@ function showStatistics(stats) {
 }
 
 // Iniciar migração
-async function startMigration(botToken, sourceChannelId, targetWebhookUrl, sourceThreadId = null, targetThreadId = null) {
+async function startMigration(botToken, sourceChannelId, targetWebhookUrl, sourceThreadId = null, targetThreadId = null, customTags = null) {
     try {
         // Resetar UI
         activityLog.innerHTML = '';
@@ -218,6 +219,9 @@ async function startMigration(botToken, sourceChannelId, targetWebhookUrl, sourc
         }
         if (targetThreadId) {
             requestBody.targetThreadId = targetThreadId;
+        }
+        if (customTags) {
+            requestBody.customTags = customTags;
         }
 
         // Fazer request com EventSource para receber progresso em tempo real
@@ -283,6 +287,7 @@ function resetMigration() {
     sourceThreadIdInput.value = '';
     targetWebhookUrlInput.value = '';
     targetThreadIdInput.value = '';
+    customTagsInput.value = '';
 }
 
 // ==================== EVENT LISTENERS ====================
@@ -295,6 +300,7 @@ migrationForm.addEventListener('submit', async (e) => {
     const sourceThreadId = sourceThreadIdInput.value.trim();
     const targetWebhookUrl = targetWebhookUrlInput.value.trim();
     const targetThreadId = targetThreadIdInput.value.trim();
+    const customTags = customTagsInput.value.trim();
 
     if (!botToken || !sourceChannelId || !targetWebhookUrl) {
         showNotification('Por favor, preencha todos os campos obrigatórios.', 'error');
@@ -334,11 +340,12 @@ migrationForm.addEventListener('submit', async (e) => {
     // Confirmar antes de iniciar
     const sourceDescription = sourceThreadId ? `thread ${sourceThreadId} do canal ${sourceChannelId}` : `canal ${sourceChannelId}`;
     const targetDescription = targetThreadId ? `thread ${targetThreadId}` : `canal de destino`;
-    if (!confirm(`Tem certeza que deseja migrar a ${sourceDescription}?\n\nIsso pode levar vários minutos dependendo da quantidade de arquivos.\n\nAs mensagens serão repostadas na ${targetDescription}.`)) {
+    const tagsDescription = customTags ? `\n\nTags adicionais: ${customTags}` : '';
+    if (!confirm(`Tem certeza que deseja migrar a ${sourceDescription}?\n\nIsso pode levar vários minutos dependendo da quantidade de arquivos.\n\nAs mensagens serão repostadas na ${targetDescription}.${tagsDescription}`)) {
         return;
     }
 
-    await startMigration(botToken, sourceChannelId, targetWebhookUrl, sourceThreadId || null, targetThreadId || null);
+    await startMigration(botToken, sourceChannelId, targetWebhookUrl, sourceThreadId || null, targetThreadId || null, customTags || null);
 });
 
 // ==================== INICIALIZAÇÃO ====================
