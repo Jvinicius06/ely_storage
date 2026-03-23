@@ -112,18 +112,25 @@ await fastify.register(fastifyStatic, {
   prefix: '/'
 });
 
-// Rastrear downloads (registra no banco antes de servir o arquivo)
-const downloadTracker = async (request, reply) => {
-  try {
-    const filename = decodeURIComponent(request.url.replace('/download/', '').split('?')[0]);
-    const file = dbOperations.getFileByStoredName(filename);
-    if (file) {
-      dbOperations.recordDownload(file.id);
+// Rastrear downloads via hook global.
+// Motivo: dentro de plugins com `prefix`, o Fastify remove o prefixo de request.url,
+// então o preHandler do plugin não consegue reconstruir o nome do arquivo.
+// O hook onRequest no nível raiz recebe sempre a URL completa.
+fastify.addHook('onRequest', async (request, reply) => {
+  if (request.method === 'GET' && request.url.startsWith('/download/')) {
+    try {
+      const filename = decodeURIComponent(
+        request.url.slice('/download/'.length).split('?')[0]
+      );
+      if (filename) {
+        const file = dbOperations.getFileByStoredName(filename);
+        if (file) dbOperations.recordDownload(file.id);
+      }
+    } catch (e) {
+      // Não interromper o download por erro de rastreamento
     }
-  } catch (e) {
-    // Não interromper o download por erro de rastreamento
   }
-};
+});
 
 // Servir arquivos de upload com otimizações de performance
 await fastify.register(fastifyStatic, {
@@ -146,10 +153,8 @@ await fastify.register(fastifyStatic, {
     // Permitir cross-origin (se necessário)
     res.setHeader('Access-Control-Allow-Origin', '*');
   },
-  // Middlewares: Download Tracker + Hot Cache (se habilitado) + Rate Limiting
-  preHandler: ENABLE_HOT_CACHE
-    ? [downloadTracker, hotCacheMiddleware, rateLimiter]
-    : [downloadTracker, rateLimiter]
+  // Middlewares: Hot Cache (se habilitado) + Rate Limiting
+  preHandler: ENABLE_HOT_CACHE ? [hotCacheMiddleware, rateLimiter] : rateLimiter
 });
 
 // Gerar nome único para arquivo
