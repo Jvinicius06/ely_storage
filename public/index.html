@@ -3,124 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ely Storage - Upload de Arquivos</title>
+    <title>Ely Storage</title>
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <h1>📦 Ely Storage</h1>
-            <p>Sistema de Upload para FiveM</p>
-            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
-                <span style="color: white; font-weight: 600;">
-                    Olá, <span id="currentUser">-</span>!
-                </span>
-                <button class="btn btn-secondary" id="changePasswordBtn" onclick="openChangePasswordModal()">
-                    🔑 Trocar Senha
-                </button>
-                <button class="btn btn-secondary" id="adminBtn" style="display: none;" onclick="window.location.href='/admin.html'">
-                    👥 Admin
-                </button>
-                <button class="btn btn-secondary" onclick="window.location.href='/discord-migrator.html'">
-                    🔄 Migrador Discord
-                </button>
-                <button class="btn btn-danger" onclick="logout()">
-                    🚪 Sair
-                </button>
+            <div class="header-brand">
+                <h1>Ely Storage</h1>
+                <span class="header-sub">Sistema de Arquivos para FiveM</span>
             </div>
+            <nav class="header-nav">
+                <span class="header-user">Olá, <strong id="currentUser">-</strong></span>
+                <button class="btn btn-ghost" onclick="openChangePasswordModal()">Trocar Senha</button>
+                <button class="btn btn-ghost" id="adminBtn" style="display:none" onclick="window.location.href='/admin.html'">Admin</button>
+                <button class="btn btn-ghost" onclick="window.location.href='/discord-migrator.html'">Migrador Discord</button>
+                <button class="btn btn-danger-outline" onclick="logout()">Sair</button>
+            </nav>
         </header>
 
         <!-- Stats -->
         <div class="stats" id="stats">
             <div class="stat-card">
-                <span class="stat-value" id="totalFiles">0</span>
-                <span class="stat-label">Arquivos</span>
+                <div class="stat-icon">📁</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="totalFiles">0</span>
+                    <span class="stat-label">Arquivos</span>
+                </div>
             </div>
             <div class="stat-card">
-                <span class="stat-value" id="totalSize">0 MB</span>
-                <span class="stat-label">Tamanho Total</span>
+                <div class="stat-icon">💾</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="totalSize">0 MB</span>
+                    <span class="stat-label">Armazenamento</span>
+                </div>
             </div>
         </div>
 
-        <!-- Upload Area -->
+        <!-- Upload Section -->
         <div class="upload-section">
             <div class="upload-area" id="uploadArea">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="17 8 12 3 7 8"></polyline>
-                    <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-                <p class="upload-text">Arraste arquivos aqui ou clique para selecionar</p>
-                <p class="upload-hint">Suporta imagens, vídeos e áudios</p>
+                <div class="upload-icon">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                </div>
+                <p class="upload-text">Arraste arquivos ou clique para selecionar</p>
+                <p class="upload-hint">Suporta imagens, vídeos, áudios e outros &bull; Selecione vários de uma vez</p>
                 <input type="file" id="fileInput" multiple hidden>
             </div>
 
-            <!-- Tags e Descrição -->
-            <div class="upload-meta-section">
-                <div class="form-group">
-                    <label for="tagsInput">🏷️ Tags (separadas por vírgula):</label>
-                    <input
-                        type="text"
-                        id="tagsInput"
-                        placeholder="Ex: fotos da loja, carros, áudios rp"
-                    >
+            <!-- Fila de Arquivos -->
+            <div class="file-queue" id="fileQueue"></div>
+
+            <!-- Tags, Descrição e Botão de Upload -->
+            <div class="upload-meta-section" id="uploadMeta" style="display:none">
+                <div class="upload-meta-row">
+                    <div class="form-group">
+                        <label for="tagsInput">Tags <span class="label-optional">(separadas por vírgula)</span></label>
+                        <input type="text" id="tagsInput" placeholder="Ex: fotos da loja, carros, áudios rp">
+                    </div>
+                    <div class="form-group">
+                        <label for="descriptionInput">Descrição <span class="label-optional">(opcional)</span></label>
+                        <input type="text" id="descriptionInput" placeholder="Adicione uma descrição para todos os arquivos">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="descriptionInput">📝 Descrição (opcional):</label>
-                    <input
-                        type="text"
-                        id="descriptionInput"
-                        placeholder="Adicione uma descrição para o arquivo"
-                    >
+                <div class="upload-actions">
+                    <button class="btn btn-primary btn-upload" id="uploadBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                            <path d="M5 20h14"></path>
+                        </svg>
+                        <span id="uploadBtnText">Enviar Arquivos</span>
+                    </button>
+                    <button class="btn btn-secondary" id="clearQueueBtn">Limpar Fila</button>
+                </div>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-container" id="progressContainer" style="display:none">
+                <div class="progress-info">
+                    <span id="progressLabel">Enviando...</span>
+                    <span id="progressText">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-bar" id="progressBar"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Progress Bar -->
-        <div class="progress-container" id="progressContainer" style="display: none;">
-            <div class="progress-bar" id="progressBar"></div>
-            <span class="progress-text" id="progressText">0%</span>
-        </div>
-
-        <!-- Files Grid -->
+        <!-- Files Section -->
         <div class="files-section">
             <div class="section-header">
                 <h2>Arquivos</h2>
-                <button class="btn btn-secondary" id="refreshBtn">🔄 Atualizar</button>
+                <button class="btn btn-secondary" id="refreshBtn">Atualizar</button>
+            </div>
+
+            <!-- Tag Tabs -->
+            <div class="tag-tabs-container" id="tagTabs">
+                <button class="tag-tab active" onclick="setTagTab('')">Todos</button>
             </div>
 
             <!-- Filtros -->
             <div class="filters-section">
                 <div class="filter-group">
-                    <label>🔍 Buscar por nome:</label>
-                    <input type="text" id="filterSearch" placeholder="Nome do arquivo...">
+                    <input type="text" id="filterSearch" placeholder="Buscar por nome...">
                 </div>
                 <div class="filter-group">
-                    <label>📁 Tipo:</label>
                     <select id="filterType">
-                        <option value="">Todos</option>
+                        <option value="">Todos os tipos</option>
                         <option value="image">Imagens</option>
                         <option value="video">Vídeos</option>
                         <option value="audio">Áudios</option>
                         <option value="other">Outros</option>
                     </select>
                 </div>
-                <div class="filter-group">
-                    <label>🏷️ Tag:</label>
-                    <select id="filterTag">
-                        <option value="">Todas</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <button class="btn btn-primary" id="applyFilters">Aplicar Filtros</button>
+                <div class="filter-group filter-actions">
+                    <button class="btn btn-primary" id="applyFilters">Filtrar</button>
                     <button class="btn btn-secondary" id="clearFilters">Limpar</button>
                 </div>
             </div>
 
-            <div class="files-grid" id="filesGrid">
-                <!-- Arquivos serão carregados aqui -->
-            </div>
+            <div class="files-grid" id="filesGrid"></div>
         </div>
     </div>
 
@@ -139,20 +147,12 @@
             <h2>Editar Tags e Descrição</h2>
             <div class="edit-form">
                 <div class="form-group">
-                    <label for="editTagsInput">🏷️ Tags (separadas por vírgula):</label>
-                    <input
-                        type="text"
-                        id="editTagsInput"
-                        placeholder="Ex: fotos da loja, carros, áudios rp"
-                    >
+                    <label for="editTagsInput">Tags <span class="label-optional">(separadas por vírgula)</span></label>
+                    <input type="text" id="editTagsInput" placeholder="Ex: fotos da loja, carros, áudios rp">
                 </div>
                 <div class="form-group">
-                    <label for="editDescriptionInput">📝 Descrição:</label>
-                    <textarea
-                        id="editDescriptionInput"
-                        rows="3"
-                        placeholder="Adicione uma descrição para o arquivo"
-                    ></textarea>
+                    <label for="editDescriptionInput">Descrição</label>
+                    <textarea id="editDescriptionInput" rows="3" placeholder="Adicione uma descrição para o arquivo"></textarea>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-primary" id="saveTagsBtn">Salvar</button>
@@ -169,31 +169,16 @@
             <h2>Trocar Senha</h2>
             <div class="edit-form">
                 <div class="form-group">
-                    <label for="currentPasswordInput">🔒 Senha Atual:</label>
-                    <input
-                        type="password"
-                        id="currentPasswordInput"
-                        placeholder="Digite sua senha atual"
-                        required
-                    >
+                    <label for="currentPasswordInput">Senha Atual</label>
+                    <input type="password" id="currentPasswordInput" placeholder="Digite sua senha atual" required>
                 </div>
                 <div class="form-group">
-                    <label for="newPasswordInput">🔑 Nova Senha:</label>
-                    <input
-                        type="password"
-                        id="newPasswordInput"
-                        placeholder="Digite a nova senha (mín. 6 caracteres)"
-                        required
-                    >
+                    <label for="newPasswordInput">Nova Senha</label>
+                    <input type="password" id="newPasswordInput" placeholder="Mínimo 6 caracteres" required>
                 </div>
                 <div class="form-group">
-                    <label for="confirmPasswordInput">🔑 Confirmar Nova Senha:</label>
-                    <input
-                        type="password"
-                        id="confirmPasswordInput"
-                        placeholder="Digite a nova senha novamente"
-                        required
-                    >
+                    <label for="confirmPasswordInput">Confirmar Nova Senha</label>
+                    <input type="password" id="confirmPasswordInput" placeholder="Repita a nova senha" required>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-primary" id="savePasswordBtn">Alterar Senha</button>

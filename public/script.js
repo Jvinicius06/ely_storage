@@ -1,4 +1,5 @@
-// Elementos do DOM
+// ==================== REFERÊNCIAS DOM ====================
+
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
 const tagsInput = document.getElementById('tagsInput');
@@ -8,22 +9,16 @@ const refreshBtn = document.getElementById('refreshBtn');
 const progressContainer = document.getElementById('progressContainer');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
+const progressLabel = document.getElementById('progressLabel');
 const previewModal = document.getElementById('previewModal');
 const modalClose = document.getElementById('modalClose');
 const modalBody = document.getElementById('modalBody');
 const currentUserSpan = document.getElementById('currentUser');
 const adminBtn = document.getElementById('adminBtn');
 
-// Paginação
-let currentPage = 0;
-let limitPerPage = 50; // 50 arquivos por página
-let totalFiles = 0;
-let hasMoreFiles = false;
-
 // Filtros
 const filterSearch = document.getElementById('filterSearch');
 const filterType = document.getElementById('filterType');
-const filterTag = document.getElementById('filterTag');
 const applyFiltersBtn = document.getElementById('applyFilters');
 const clearFiltersBtn = document.getElementById('clearFilters');
 
@@ -44,18 +39,27 @@ const confirmPasswordInput = document.getElementById('confirmPasswordInput');
 const savePasswordBtn = document.getElementById('savePasswordBtn');
 const cancelPasswordBtn = document.getElementById('cancelPasswordBtn');
 
-// Variável global para armazenar o ID do arquivo sendo editado
-let currentEditingFileId = null;
+// ==================== ESTADO GLOBAL ====================
 
-// Variável global para armazenar usuário atual
+let currentPage = 0;
+let limitPerPage = 50;
+let totalFiles = 0;
+let hasMoreFiles = false;
+let currentEditingFileId = null;
 let currentUser = null;
 
-// Constantes
+// Tags
+let allTags = [];
+let activeTag = '';
+
+// Fila de upload
+let fileQueue = []; // Array de { file: File, status: 'pending'|'uploading'|'done'|'error' }
+let isUploading = false;
+
 const API_URL = window.location.origin;
 
-// ==================== FUNÇÕES AUXILIARES ====================
+// ==================== HELPERS ====================
 
-// Formatar tamanho de arquivo
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -64,34 +68,73 @@ function formatFileSize(bytes) {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
 
-// Formatar data
 function formatDate(dateString) {
     const date = new Date(dateString);
     return date.toLocaleString('pt-BR');
 }
 
-// Verificar autenticação
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getQueueIcon(mimeType) {
+    if (!mimeType) return '📄';
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType.startsWith('video/')) return '🎥';
+    if (mimeType.startsWith('audio/')) return '🎵';
+    return '📄';
+}
+
+function showNotification(message, type = 'info') {
+    const colors = {
+        success: '#10b981',
+        error: '#ef4444',
+        info: '#667eea'
+    };
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 13px 20px;
+        background: ${colors[type] || colors.info};
+        color: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        z-index: 2000;
+        font-size: 0.9rem;
+        font-weight: 500;
+        animation: slideIn 0.3s ease;
+        max-width: 320px;
+    `;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
+// ==================== AUTH ====================
+
 async function checkAuth() {
     try {
-        const response = await fetch(`${API_URL}/api/auth/me`, {
-            credentials: 'include'
-        });
-
+        const response = await fetch(`${API_URL}/api/auth/me`, { credentials: 'include' });
         if (!response.ok) {
-            // Não autenticado, redirecionar para login
             window.location.href = '/login.html';
             return false;
         }
-
         const data = await response.json();
         currentUser = data.user;
         currentUserSpan.textContent = currentUser.username;
-
-        // Mostrar botão de admin se for admin
         if (currentUser.role === 'admin') {
             adminBtn.style.display = 'inline-block';
         }
-
         return true;
     } catch (error) {
         console.error('Erro ao verificar autenticação:', error);
@@ -100,45 +143,13 @@ async function checkAuth() {
     }
 }
 
-// Logout
 async function logout() {
     try {
-        await fetch(`${API_URL}/api/auth/logout`, {
-            method: 'POST',
-            credentials: 'include'
-        });
-
+        await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
         window.location.href = '/login.html';
     } catch (error) {
-        console.error('Erro ao fazer logout:', error);
         showNotification('Erro ao fazer logout', 'error');
     }
-}
-
-// Mostrar notificação
-function showNotification(message, type = 'info') {
-    // Criar elemento de notificação
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#667eea'};
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        z-index: 2000;
-        animation: slideIn 0.3s ease;
-    `;
-    notification.textContent = message;
-    document.body.appendChild(notification);
-
-    // Remover após 3 segundos
-    setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
 }
 
 // ==================== ESTATÍSTICAS ====================
@@ -147,7 +158,6 @@ async function loadStats() {
     try {
         const response = await fetch(`${API_URL}/api/stats`);
         const data = await response.json();
-
         if (data.success) {
             document.getElementById('totalFiles').textContent = data.stats.totalFiles;
             document.getElementById('totalSize').textContent = formatFileSize(data.stats.totalSize);
@@ -157,83 +167,180 @@ async function loadStats() {
     }
 }
 
-// ==================== UPLOAD ====================
+// ==================== FILA DE UPLOAD ====================
 
-// Upload de arquivo
-async function uploadFile(file) {
-    const formData = new FormData();
-    formData.append('file', file);
+function addFilesToQueue(files) {
+    const newItems = Array.from(files).map(file => ({ file, status: 'pending' }));
+    fileQueue = [...fileQueue, ...newItems];
+    renderQueue();
+}
 
-    // Adicionar tags e description se fornecidos
+function removeFromQueue(index) {
+    if (isUploading) return;
+    fileQueue.splice(index, 1);
+    renderQueue();
+}
+
+function clearQueue() {
+    if (isUploading) return;
+    fileQueue = [];
+    renderQueue();
+}
+
+function renderQueue() {
+    const queueContainer = document.getElementById('fileQueue');
+    const uploadMeta = document.getElementById('uploadMeta');
+    const uploadBtnText = document.getElementById('uploadBtnText');
+    const uploadBtn = document.getElementById('uploadBtn');
+
+    if (fileQueue.length === 0) {
+        queueContainer.innerHTML = '';
+        if (uploadMeta) uploadMeta.style.display = 'none';
+        return;
+    }
+
+    if (uploadMeta) uploadMeta.style.display = 'block';
+
+    const pending = fileQueue.filter(i => i.status === 'pending').length;
+    if (uploadBtnText) {
+        if (pending > 0) {
+            uploadBtnText.textContent = `Enviar ${pending} arquivo${pending > 1 ? 's' : ''}`;
+        } else {
+            uploadBtnText.textContent = 'Concluído';
+        }
+    }
+    if (uploadBtn) uploadBtn.disabled = isUploading || pending === 0;
+
+    queueContainer.innerHTML = fileQueue.map((item, i) => {
+        const statusLabel = {
+            pending: '',
+            uploading: '<span class="queue-status uploading">Enviando...</span>',
+            done: '<span class="queue-status done">✓ Enviado</span>',
+            error: '<span class="queue-status error">✗ Erro</span>'
+        }[item.status] || '';
+
+        const removeBtn = item.status === 'pending' && !isUploading
+            ? `<button class="queue-remove" onclick="removeFromQueue(${i})" title="Remover">&times;</button>`
+            : '<div style="width:22px"></div>';
+
+        return `
+            <div class="queue-item ${item.status !== 'pending' ? item.status : ''}">
+                <span class="queue-icon">${getQueueIcon(item.file.type)}</span>
+                <span class="queue-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
+                <span class="queue-size">${formatFileSize(item.file.size)}</span>
+                ${statusLabel}
+                ${removeBtn}
+            </div>
+        `;
+    }).join('');
+}
+
+async function uploadQueue() {
+    const pending = fileQueue.filter(i => i.status === 'pending');
+    if (pending.length === 0 || isUploading) return;
+
+    isUploading = true;
+    renderQueue();
+
     const tags = tagsInput.value.trim();
     const description = descriptionInput.value.trim();
-    if (tags) formData.append('tags', tags);
-    if (description) formData.append('description', description);
 
     progressContainer.style.display = 'block';
     progressBar.style.width = '0%';
-    progressText.textContent = '0%';
 
-    try {
-        const xhr = new XMLHttpRequest();
+    let uploaded = 0;
+    let failed = 0;
+    const total = fileQueue.length;
 
-        // Progress listener
-        xhr.upload.addEventListener('progress', (e) => {
-            if (e.lengthComputable) {
-                const percentComplete = Math.round((e.loaded / e.total) * 100);
-                progressBar.style.width = percentComplete + '%';
-                progressText.textContent = percentComplete + '%';
-            }
-        });
+    for (let i = 0; i < fileQueue.length; i++) {
+        const item = fileQueue[i];
+        if (item.status !== 'pending') continue;
 
-        // Complete listener
-        xhr.addEventListener('load', () => {
-            progressContainer.style.display = 'none';
+        item.status = 'uploading';
+        renderQueue();
 
-            if (xhr.status === 201) {
-                const response = JSON.parse(xhr.responseText);
-                showNotification('Arquivo enviado com sucesso!', 'success');
+        try {
+            await uploadSingleFile(item.file, tags, description, i, total);
+            item.status = 'done';
+            uploaded++;
+        } catch (e) {
+            item.status = 'error';
+            failed++;
+        }
 
-                // Limpar campos de tags e descrição
-                tagsInput.value = '';
-                descriptionInput.value = '';
-
-                loadFiles();
-                loadStats();
-                loadTags(); // Recarregar tags disponíveis
-            } else {
-                const error = JSON.parse(xhr.responseText);
-                showNotification(`Erro: ${error.message}`, 'error');
-            }
-        });
-
-        // Error listener
-        xhr.addEventListener('error', () => {
-            progressContainer.style.display = 'none';
-            showNotification('Erro ao enviar arquivo!', 'error');
-        });
-
-        xhr.open('POST', `${API_URL}/api/upload`);
-        xhr.withCredentials = true; // Incluir cookies de sessão
-        xhr.send(formData);
-    } catch (error) {
-        progressContainer.style.display = 'none';
-        showNotification('Erro ao enviar arquivo!', 'error');
-        console.error('Erro:', error);
+        const overallProgress = Math.round(((i + 1) / total) * 100);
+        progressBar.style.width = overallProgress + '%';
+        progressText.textContent = overallProgress + '%';
+        progressLabel.textContent = `Arquivo ${Math.min(i + 1, total)} de ${total}`;
+        renderQueue();
     }
+
+    isUploading = false;
+
+    setTimeout(() => {
+        progressContainer.style.display = 'none';
+    }, 1000);
+
+    if (uploaded > 0) {
+        showNotification(`${uploaded} arquivo${uploaded > 1 ? 's' : ''} enviado${uploaded > 1 ? 's' : ''} com sucesso!`, 'success');
+        loadStats();
+        loadTags();
+    }
+    if (failed > 0) {
+        showNotification(`${failed} arquivo${failed > 1 ? 's' : ''} falhou no upload`, 'error');
+    }
+
+    // Limpar fila após upload completo
+    fileQueue = [];
+    tagsInput.value = '';
+    descriptionInput.value = '';
+    renderQueue();
+    loadFiles();
 }
 
-// ==================== LISTAGEM ====================
+function uploadSingleFile(file, tags, description, fileIndex, totalCount) {
+    return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (tags) formData.append('tags', tags);
+        if (description) formData.append('description', description);
 
-// Carregar arquivos com paginação
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const fileProgress = e.loaded / e.total;
+                const overallProgress = Math.round(((fileIndex + fileProgress) / totalCount) * 100);
+                progressBar.style.width = overallProgress + '%';
+                progressText.textContent = overallProgress + '%';
+                progressLabel.textContent = `Enviando ${fileIndex + 1} de ${totalCount}: ${file.name}`;
+            }
+        });
+
+        xhr.addEventListener('load', () => {
+            if (xhr.status === 201) {
+                resolve();
+            } else {
+                reject(new Error(`Status ${xhr.status}`));
+            }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Erro de rede')));
+
+        xhr.open('POST', `${API_URL}/api/upload`);
+        xhr.withCredentials = true;
+        xhr.send(formData);
+    });
+}
+
+// ==================== LISTAGEM DE ARQUIVOS ====================
+
 async function loadFiles(page = 0) {
     try {
         currentPage = page;
         const offset = page * limitPerPage;
-
         const response = await fetch(`${API_URL}/api/files?limit=${limitPerPage}&offset=${offset}`);
         const data = await response.json();
-
         if (data.success) {
             totalFiles = data.total;
             hasMoreFiles = data.hasMore;
@@ -246,15 +353,14 @@ async function loadFiles(page = 0) {
     }
 }
 
-// Renderizar arquivos
 function renderFiles(files) {
     if (files.length === 0) {
         filesGrid.innerHTML = `
             <div class="empty-state" style="grid-column: 1/-1;">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
                 </svg>
-                <h3>Nenhum arquivo enviado ainda</h3>
+                <h3>Nenhum arquivo encontrado</h3>
                 <p>Faça upload de arquivos usando a área acima</p>
             </div>
         `;
@@ -264,14 +370,10 @@ function renderFiles(files) {
     filesGrid.innerHTML = files.map(file => {
         const preview = getFilePreview(file);
         const tags = file.tags ? file.tags.split(',').map(t => t.trim()).filter(t => t) : [];
-        const tagsHTML = tags.map(tag => `<span class="tag">${tag}</span>`).join('');
-
-        // Verificar se o usuário pode deletar/editar este arquivo
+        const tagsHTML = tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('');
         const canModify = currentUser && (currentUser.role === 'admin' || file.uploaded_by === currentUser.id);
-
-        // Informação de quem fez upload
         const uploaderInfo = file.uploaded_by_username
-            ? `Enviado por: ${file.uploaded_by_username}`
+            ? `Enviado por: ${escapeHtml(file.uploaded_by_username)}`
             : 'Enviado via API';
 
         return `
@@ -280,25 +382,19 @@ function renderFiles(files) {
                     ${preview}
                 </div>
                 <div class="file-info">
-                    <div class="file-name" title="${file.original_name}">${file.original_name}</div>
-                    <div class="file-meta">
-                        ${formatFileSize(file.size)} • ${formatDate(file.uploaded_at)}
-                    </div>
-                    <div class="file-meta" style="margin-top: 5px; font-size: 0.8rem; color: var(--primary);">
-                        ${uploaderInfo}
-                    </div>
-                    <div class="file-tags">
-                        ${tagsHTML}
-                    </div>
+                    <div class="file-name" title="${escapeHtml(file.original_name)}">${escapeHtml(file.original_name)}</div>
+                    <div class="file-meta">${formatFileSize(file.size)} &bull; ${formatDate(file.uploaded_at)}</div>
+                    <div class="file-meta" style="color: var(--primary); font-size: 0.78rem;">${uploaderInfo}</div>
+                    <div class="file-tags">${tagsHTML}</div>
                     <div class="file-actions">
-                        <button class="btn btn-primary" onclick="copyLink('${file.download_url}')">
-                            📋 Link
+                        <button class="btn btn-primary" onclick="copyLink('${escapeHtml(file.download_url)}')">
+                            Copiar Link
                         </button>
                         ${canModify ? `
                             <button class="btn btn-secondary" onclick="openEditTagsModal(${file.id})">
-                                🏷️ Tags
+                                Tags
                             </button>
-                            <button class="btn btn-danger" onclick="deleteFile(${file.id}, '${file.stored_name}')">
+                            <button class="btn btn-danger" onclick="deleteFile(${file.id}, '${escapeHtml(file.stored_name)}')">
                                 🗑️
                             </button>
                         ` : ''}
@@ -309,11 +405,8 @@ function renderFiles(files) {
     }).join('');
 }
 
-// Renderizar controles de paginação
 function renderPagination() {
     let paginationContainer = document.getElementById('paginationContainer');
-
-    // Criar container se não existir
     if (!paginationContainer) {
         paginationContainer = document.createElement('div');
         paginationContainer.id = 'paginationContainer';
@@ -321,78 +414,53 @@ function renderPagination() {
         filesGrid.parentNode.appendChild(paginationContainer);
     }
 
-    // Calcular informações
-    const startItem = currentPage * limitPerPage + 1;
-    const endItem = Math.min((currentPage + 1) * limitPerPage, totalFiles);
-    const totalPages = Math.ceil(totalFiles / limitPerPage);
-
     if (totalFiles === 0) {
         paginationContainer.innerHTML = '';
         return;
     }
 
+    const startItem = currentPage * limitPerPage + 1;
+    const endItem = Math.min((currentPage + 1) * limitPerPage, totalFiles);
+    const totalPages = Math.ceil(totalFiles / limitPerPage);
+
     paginationContainer.innerHTML = `
         <div class="pagination-info">
-            Mostrando ${startItem}-${endItem} de ${totalFiles} arquivos
+            Mostrando ${startItem}–${endItem} de ${totalFiles} arquivos
         </div>
         <div class="pagination-buttons">
-            <button
-                class="btn btn-secondary"
-                ${currentPage === 0 ? 'disabled' : ''}
-                onclick="loadFiles(0)"
-                title="Primeira página"
-            >
-                ⏮️ Primeira
+            <button class="btn btn-secondary" ${currentPage === 0 ? 'disabled' : ''} onclick="loadFiles(0)">
+                ⏮ Primeira
             </button>
-            <button
-                class="btn btn-secondary"
-                ${currentPage === 0 ? 'disabled' : ''}
-                onclick="loadFiles(${currentPage - 1})"
-                title="Página anterior"
-            >
-                ⬅️ Anterior
+            <button class="btn btn-secondary" ${currentPage === 0 ? 'disabled' : ''} onclick="loadFiles(${currentPage - 1})">
+                ← Anterior
             </button>
-            <span class="pagination-current">
-                Página ${currentPage + 1} de ${totalPages}
-            </span>
-            <button
-                class="btn btn-secondary"
-                ${!hasMoreFiles ? 'disabled' : ''}
-                onclick="loadFiles(${currentPage + 1})"
-                title="Próxima página"
-            >
-                Próxima ➡️
+            <span class="pagination-current">Página ${currentPage + 1} de ${totalPages}</span>
+            <button class="btn btn-secondary" ${!hasMoreFiles ? 'disabled' : ''} onclick="loadFiles(${currentPage + 1})">
+                Próxima →
             </button>
-            <button
-                class="btn btn-secondary"
-                ${!hasMoreFiles ? 'disabled' : ''}
-                onclick="loadFiles(${totalPages - 1})"
-                title="Última página"
-            >
-                Última ⏭️
+            <button class="btn btn-secondary" ${!hasMoreFiles ? 'disabled' : ''} onclick="loadFiles(${totalPages - 1})">
+                Última ⏭
             </button>
         </div>
     `;
 }
 
-// Obter preview do arquivo
 function getFilePreview(file) {
     const url = file.download_url;
-
     if (file.file_type === 'image') {
-        return `<img src="${url}" alt="${file.original_name}">`;
+        return `<img src="${url}" alt="${escapeHtml(file.original_name)}">`;
     } else if (file.file_type === 'video') {
         return `<video src="${url}" preload="metadata"></video>`;
     } else if (file.file_type === 'audio') {
         return `
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path>
             </svg>
         `;
     } else {
         return `
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
             </svg>
         `;
     }
@@ -400,126 +468,127 @@ function getFilePreview(file) {
 
 // ==================== AÇÕES ====================
 
-// Abrir preview
 async function openPreview(fileId) {
     try {
         const response = await fetch(`${API_URL}/api/files/${fileId}`);
         const data = await response.json();
+        if (!data.success) return;
 
-        if (data.success) {
-            const file = data.file;
-            let content = '';
+        const file = data.file;
+        let content = '';
 
-            if (file.file_type === 'image') {
-                content = `<img src="${file.download_url}" alt="${file.original_name}">`;
-            } else if (file.file_type === 'video') {
-                content = `<video src="${file.download_url}" controls style="max-width: 100%;"></video>`;
-            } else if (file.file_type === 'audio') {
-                content = `
-                    <h3>${file.original_name}</h3>
-                    <audio src="${file.download_url}" controls></audio>
-                `;
-            } else {
-                content = `
-                    <h3>${file.original_name}</h3>
-                    <p>Tipo: ${file.mime_type}</p>
-                    <p>Tamanho: ${formatFileSize(file.size)}</p>
-                    <a href="${file.download_url}" target="_blank" class="btn btn-primary">Abrir arquivo</a>
-                `;
-            }
-
-            modalBody.innerHTML = content;
-            previewModal.classList.add('active');
+        if (file.file_type === 'image') {
+            content = `<img src="${file.download_url}" alt="${escapeHtml(file.original_name)}">`;
+        } else if (file.file_type === 'video') {
+            content = `<video src="${file.download_url}" controls style="max-width: 100%;"></video>`;
+        } else if (file.file_type === 'audio') {
+            content = `
+                <h3 style="margin-bottom:16px">${escapeHtml(file.original_name)}</h3>
+                <audio src="${file.download_url}" controls></audio>
+            `;
+        } else {
+            content = `
+                <h3 style="margin-bottom:16px">${escapeHtml(file.original_name)}</h3>
+                <p style="color:var(--gray); margin-bottom:8px">Tipo: ${escapeHtml(file.mime_type)}</p>
+                <p style="color:var(--gray); margin-bottom:16px">Tamanho: ${formatFileSize(file.size)}</p>
+                <a href="${file.download_url}" target="_blank" class="btn btn-primary">Abrir arquivo</a>
+            `;
         }
+
+        modalBody.innerHTML = content;
+        previewModal.classList.add('active');
     } catch (error) {
-        console.error('Erro ao abrir preview:', error);
         showNotification('Erro ao abrir preview', 'error');
     }
 }
 
-// Copiar link
 function copyLink(url) {
-    // Verificar se a API Clipboard está disponível
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(() => {
-            showNotification('✅ Link copiado!', 'success');
-        }).catch(() => {
-            showNotification('❌ Erro ao copiar link', 'error');
-        });
+        navigator.clipboard.writeText(url)
+            .then(() => showNotification('Link copiado!', 'success'))
+            .catch(() => showNotification('Erro ao copiar link', 'error'));
     } else {
-        // Fallback para navegadores antigos ou HTTP
         const textarea = document.createElement('textarea');
         textarea.value = url;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
+        textarea.style.cssText = 'position:fixed;opacity:0';
         document.body.appendChild(textarea);
         textarea.select();
-
         try {
             document.execCommand('copy');
-            showNotification('✅ Link copiado!', 'success');
-        } catch (err) {
-            showNotification('❌ Erro ao copiar link', 'error');
+            showNotification('Link copiado!', 'success');
+        } catch {
+            showNotification('Erro ao copiar link', 'error');
         }
-
         document.body.removeChild(textarea);
     }
 }
 
-// Deletar arquivo
 async function deleteFile(fileId, fileName) {
-    if (!confirm(`Tem certeza que deseja deletar "${fileName}"?`)) {
-        return;
-    }
-
+    if (!confirm(`Deletar "${fileName}"?`)) return;
     try {
         const response = await fetch(`${API_URL}/api/files/${fileId}`, {
             method: 'DELETE',
             credentials: 'include'
         });
-
         const data = await response.json();
-
         if (data.success) {
             showNotification('Arquivo deletado!', 'success');
-            loadFiles();
+            loadFiles(currentPage);
             loadStats();
         } else {
             showNotification(`Erro: ${data.message}`, 'error');
         }
     } catch (error) {
-        console.error('Erro ao deletar arquivo:', error);
         showNotification('Erro ao deletar arquivo', 'error');
     }
 }
 
-// ==================== TAGS E FILTROS ====================
+// ==================== TAGS E ABAS ====================
 
-// Carregar todas as tags disponíveis
 async function loadTags() {
     try {
         const response = await fetch(`${API_URL}/api/tags`);
         const data = await response.json();
-
         if (data.success) {
-            const tags = data.tags;
-            filterTag.innerHTML = '<option value="">Todas</option>' +
-                tags.map(tag => `<option value="${tag}">${tag}</option>`).join('');
+            allTags = data.tags;
+            renderTagTabs(allTags);
         }
     } catch (error) {
         console.error('Erro ao carregar tags:', error);
     }
 }
 
-// Buscar arquivos com filtros e paginação
+function renderTagTabs(tags) {
+    const container = document.getElementById('tagTabs');
+    if (!container) return;
+
+    container.innerHTML = `
+        <button class="tag-tab ${activeTag === '' ? 'active' : ''}" onclick="setTagTab('')">
+            Todos
+        </button>
+        ${tags.map(tag => `
+            <button class="tag-tab ${activeTag === tag ? 'active' : ''}" onclick="setTagTab(${JSON.stringify(tag)})">
+                ${escapeHtml(tag)}
+            </button>
+        `).join('')}
+    `;
+}
+
+function setTagTab(tag) {
+    activeTag = tag;
+    renderTagTabs(allTags);
+    searchFiles(0);
+}
+
+// ==================== BUSCA E FILTROS ====================
+
 async function searchFiles(page = 0) {
     try {
         currentPage = page;
         const offset = page * limitPerPage;
-
         const search = filterSearch.value.trim();
         const type = filterType.value;
-        const tag = filterTag.value;
+        const tag = activeTag;
 
         const params = new URLSearchParams();
         params.append('limit', limitPerPage);
@@ -528,7 +597,6 @@ async function searchFiles(page = 0) {
         if (type) params.append('fileType', type);
         if (tag) params.append('tag', tag);
 
-        // Se tem filtros, usa /api/search, senão usa /api/files
         const hasFilters = search || type || tag;
         const url = hasFilters
             ? `${API_URL}/api/search?${params.toString()}`
@@ -538,7 +606,6 @@ async function searchFiles(page = 0) {
         const data = await response.json();
 
         if (data.success) {
-            // Se é busca com filtros, calcular total e hasMore manualmente
             if (hasFilters) {
                 totalFiles = data.count || data.files.length;
                 hasMoreFiles = data.files.length >= limitPerPage;
@@ -546,86 +613,74 @@ async function searchFiles(page = 0) {
                 totalFiles = data.total;
                 hasMoreFiles = data.hasMore;
             }
-
             renderFiles(data.files);
             renderPagination();
         }
     } catch (error) {
-        console.error('Erro ao buscar arquivos:', error);
         showNotification('Erro ao buscar arquivos', 'error');
     }
 }
 
-// Limpar filtros
 function clearFilters() {
     filterSearch.value = '';
     filterType.value = '';
-    filterTag.value = '';
+    activeTag = '';
+    renderTagTabs(allTags);
     loadFiles();
 }
 
-// Abrir modal de edição de tags
+// ==================== MODAL EDITAR TAGS ====================
+
 async function openEditTagsModal(fileId) {
     try {
         const response = await fetch(`${API_URL}/api/files/${fileId}`);
         const data = await response.json();
-
         if (data.success) {
-            const file = data.file;
             currentEditingFileId = fileId;
-            editTagsInput.value = file.tags || '';
-            editDescriptionInput.value = file.description || '';
+            editTagsInput.value = data.file.tags || '';
+            editDescriptionInput.value = data.file.description || '';
             editTagsModal.classList.add('active');
         }
     } catch (error) {
-        console.error('Erro ao carregar arquivo:', error);
         showNotification('Erro ao carregar arquivo', 'error');
     }
 }
 
-// Salvar tags editadas
 async function saveEditedTags() {
     if (!currentEditingFileId) return;
-
     const tags = editTagsInput.value.trim();
     const description = editDescriptionInput.value.trim();
 
     try {
         const response = await fetch(`${API_URL}/api/files/${currentEditingFileId}/tags`, {
             method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ tags, description })
         });
-
         const data = await response.json();
 
         if (data.success) {
             showNotification('Tags atualizadas!', 'success');
             editTagsModal.classList.remove('active');
             currentEditingFileId = null;
-            loadFiles();
+            loadFiles(currentPage);
             loadTags();
         } else {
             showNotification(`Erro: ${data.message}`, 'error');
         }
     } catch (error) {
-        console.error('Erro ao atualizar tags:', error);
         showNotification('Erro ao atualizar tags', 'error');
     }
 }
 
-// Fechar modal de edição de tags
 function closeEditTagsModal() {
     editTagsModal.classList.remove('active');
     currentEditingFileId = null;
 }
 
-// ==================== TROCAR SENHA ====================
+// ==================== MODAL TROCAR SENHA ====================
 
-// Abrir modal de trocar senha
 function openChangePasswordModal() {
     currentPasswordInput.value = '';
     newPasswordInput.value = '';
@@ -633,31 +688,23 @@ function openChangePasswordModal() {
     changePasswordModal.classList.add('active');
 }
 
-// Fechar modal de trocar senha
 function closeChangePasswordModal() {
     changePasswordModal.classList.remove('active');
-    currentPasswordInput.value = '';
-    newPasswordInput.value = '';
-    confirmPasswordInput.value = '';
 }
 
-// Trocar senha
 async function changePassword() {
     const currentPassword = currentPasswordInput.value;
     const newPassword = newPasswordInput.value;
     const confirmPassword = confirmPasswordInput.value;
 
-    // Validações
     if (!currentPassword || !newPassword || !confirmPassword) {
-        showNotification('Por favor, preencha todos os campos.', 'error');
+        showNotification('Preencha todos os campos.', 'error');
         return;
     }
-
     if (newPassword.length < 6) {
         showNotification('A nova senha deve ter pelo menos 6 caracteres.', 'error');
         return;
     }
-
     if (newPassword !== confirmPassword) {
         showNotification('As senhas não coincidem.', 'error');
         return;
@@ -666,18 +713,11 @@ async function changePassword() {
     try {
         const response = await fetch(`${API_URL}/api/auth/change-password`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({
-                currentPassword,
-                newPassword
-            })
+            body: JSON.stringify({ currentPassword, newPassword })
         });
-
         const data = await response.json();
-
         if (response.ok) {
             showNotification('Senha alterada com sucesso!', 'success');
             closeChangePasswordModal();
@@ -685,122 +725,72 @@ async function changePassword() {
             showNotification(data.message || 'Erro ao trocar senha.', 'error');
         }
     } catch (error) {
-        console.error('Erro ao trocar senha:', error);
         showNotification('Erro ao trocar senha.', 'error');
     }
 }
 
 // ==================== EVENT LISTENERS ====================
 
-// Click na área de upload
-uploadArea.addEventListener('click', () => {
-    fileInput.click();
-});
+uploadArea.addEventListener('click', () => fileInput.click());
 
-// Selecionar arquivos
 fileInput.addEventListener('change', (e) => {
-    const files = Array.from(e.target.files);
-    files.forEach(file => uploadFile(file));
-    fileInput.value = ''; // Limpar input
+    addFilesToQueue(e.target.files);
+    fileInput.value = '';
 });
 
-// Drag and drop
 uploadArea.addEventListener('dragover', (e) => {
     e.preventDefault();
     uploadArea.classList.add('drag-over');
 });
 
-uploadArea.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('drag-over');
-});
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
 
 uploadArea.addEventListener('drop', (e) => {
     e.preventDefault();
     uploadArea.classList.remove('drag-over');
-
-    const files = Array.from(e.dataTransfer.files);
-    files.forEach(file => uploadFile(file));
+    addFilesToQueue(e.dataTransfer.files);
 });
 
-// Botão de refresh
+document.getElementById('uploadBtn').addEventListener('click', uploadQueue);
+
+document.getElementById('clearQueueBtn').addEventListener('click', clearQueue);
+
 refreshBtn.addEventListener('click', () => {
     loadFiles();
     loadStats();
-    showNotification('✅ Atualizado!', 'success');
+    showNotification('Atualizado!', 'success');
 });
 
-// Fechar modal
-modalClose.addEventListener('click', () => {
-    previewModal.classList.remove('active');
-});
-
+modalClose.addEventListener('click', () => previewModal.classList.remove('active'));
 previewModal.addEventListener('click', (e) => {
-    if (e.target === previewModal) {
-        previewModal.classList.remove('active');
-    }
+    if (e.target === previewModal) previewModal.classList.remove('active');
 });
 
-// Aplicar filtros
-applyFiltersBtn.addEventListener('click', () => {
-    searchFiles();
-});
-
-// Limpar filtros
-clearFiltersBtn.addEventListener('click', () => {
-    clearFilters();
-});
-
-// Enter na busca para aplicar filtros
+applyFiltersBtn.addEventListener('click', () => searchFiles());
+clearFiltersBtn.addEventListener('click', clearFilters);
 filterSearch.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        searchFiles();
-    }
+    if (e.key === 'Enter') searchFiles();
 });
 
-// Fechar modal de editar tags
 editTagsModalClose.addEventListener('click', closeEditTagsModal);
-
 cancelTagsBtn.addEventListener('click', closeEditTagsModal);
-
 editTagsModal.addEventListener('click', (e) => {
-    if (e.target === editTagsModal) {
-        closeEditTagsModal();
-    }
+    if (e.target === editTagsModal) closeEditTagsModal();
 });
-
-// Salvar tags editadas
 saveTagsBtn.addEventListener('click', saveEditedTags);
 
-// Fechar modal de trocar senha
 changePasswordModalClose.addEventListener('click', closeChangePasswordModal);
-
 cancelPasswordBtn.addEventListener('click', closeChangePasswordModal);
-
 changePasswordModal.addEventListener('click', (e) => {
-    if (e.target === changePasswordModal) {
-        closeChangePasswordModal();
-    }
+    if (e.target === changePasswordModal) closeChangePasswordModal();
 });
-
-// Salvar nova senha
 savePasswordBtn.addEventListener('click', changePassword);
-
-// Enter nos campos de senha para submeter
-currentPasswordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') changePassword();
-});
-
-newPasswordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') changePassword();
-});
-
-confirmPasswordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') changePassword();
+[currentPasswordInput, newPasswordInput, confirmPasswordInput].forEach(input => {
+    input.addEventListener('keypress', (e) => { if (e.key === 'Enter') changePassword(); });
 });
 
 // ==================== INICIALIZAÇÃO ====================
 
-// Inicializar aplicação
 async function init() {
     const isAuth = await checkAuth();
     if (isAuth) {
@@ -810,32 +800,18 @@ async function init() {
     }
 }
 
-// Carregar dados ao iniciar
 init();
 
-// Adicionar estilos de animação
+// Animações
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
     }
-
     @keyframes slideOut {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(100%);
-            opacity: 0;
-        }
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
     }
 `;
 document.head.appendChild(style);
