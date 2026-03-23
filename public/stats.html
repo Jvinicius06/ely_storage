@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ely Storage - Estatísticas</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-brand">
+                <h1>Ely Storage</h1>
+                <span class="header-sub">Estatísticas de Downloads</span>
+            </div>
+            <nav class="header-nav">
+                <span class="header-user">Olá, <strong id="currentUser">-</strong></span>
+                <button class="btn btn-ghost" onclick="window.location.href='/'">← Voltar</button>
+                <button class="btn btn-danger-outline" onclick="logout()">Sair</button>
+            </nav>
+        </header>
+
+        <!-- Stats Cards -->
+        <div class="stats" id="summaryCards">
+            <div class="stat-card">
+                <div class="stat-icon">📁</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="cardTotalFiles">-</span>
+                    <span class="stat-label">Total de Arquivos</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📥</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="cardTotalDownloads">-</span>
+                    <span class="stat-label">Downloads no Período</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="cardUnused" style="color: var(--danger);">-</span>
+                    <span class="stat-label">Sem Downloads</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📅</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="cardPeriod">30d</span>
+                    <span class="stat-label">Período Analisado</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabela de Stats -->
+        <div class="stats-table-section">
+            <div class="stats-table-header">
+                <div>
+                    <h3>Downloads por Arquivo</h3>
+                    <p style="font-size:0.8rem; color:var(--gray); margin-top:2px;">
+                        Arquivos sem downloads no período estão em destaque vermelho
+                    </p>
+                </div>
+                <div class="stats-controls">
+                    <!-- Seletor de período -->
+                    <div class="period-selector" id="periodSelector">
+                        <button class="period-btn" onclick="setPeriod(7)">7d</button>
+                        <button class="period-btn" onclick="setPeriod(14)">14d</button>
+                        <button class="period-btn active" onclick="setPeriod(30)">30d</button>
+                        <button class="period-btn" onclick="setPeriod(60)">60d</button>
+                        <button class="period-btn" onclick="setPeriod(90)">90d</button>
+                    </div>
+                    <!-- Filtro -->
+                    <select class="filter-select" id="showFilter" onchange="applyFilter()">
+                        <option value="all">Todos os arquivos</option>
+                        <option value="unused">Sem downloads</option>
+                        <option value="used">Com downloads</option>
+                    </select>
+                    <!-- Deletar não utilizados -->
+                    <button class="btn btn-danger" id="deleteUnusedBtn" onclick="deleteAllUnused()" style="display:none">
+                        Deletar não utilizados
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-table-wrapper">
+                <table class="stats-table" id="statsTable">
+                    <thead>
+                        <tr>
+                            <th style="width:32px"></th>
+                            <th onclick="sortBy('name')">Arquivo <span class="sort-icon" id="sort-name"></span></th>
+                            <th onclick="sortBy('tags')">Tags</th>
+                            <th onclick="sortBy('size')">Tamanho <span class="sort-icon" id="sort-size"></span></th>
+                            <th onclick="sortBy('downloads')" class="sorted">Downloads <span class="sort-icon" id="sort-downloads">↑</span></th>
+                            <th onclick="sortBy('last')">Último Download <span class="sort-icon" id="sort-last"></span></th>
+                            <th onclick="sortBy('uploaded')">Enviado em <span class="sort-icon" id="sort-uploaded"></span></th>
+                            <th style="width:80px">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="statsTableBody">
+                        <tr>
+                            <td colspan="8" style="text-align:center; padding:40px; color:var(--gray);">
+                                Carregando...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/stats.js"></script>
+</body>
+</html>

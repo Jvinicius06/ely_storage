@@ -18,6 +18,7 @@
                 <span class="header-user">Olá, <strong id="currentUser">-</strong></span>
                 <button class="btn btn-ghost" onclick="openChangePasswordModal()">Trocar Senha</button>
                 <button class="btn btn-ghost" id="adminBtn" style="display:none" onclick="window.location.href='/admin.html'">Admin</button>
+                <button class="btn btn-ghost" onclick="window.location.href='/stats.html'">Estatísticas</button>
                 <button class="btn btn-ghost" onclick="window.location.href='/discord-migrator.html'">Migrador Discord</button>
                 <button class="btn btn-danger-outline" onclick="logout()">Sair</button>
             </nav>
@@ -103,32 +104,40 @@
                 <button class="btn btn-secondary" id="refreshBtn">Atualizar</button>
             </div>
 
-            <!-- Tag Tabs -->
-            <div class="tag-tabs-container" id="tagTabs">
-                <button class="tag-tab active" onclick="setTagTab('')">Todos</button>
-            </div>
+            <div class="files-layout">
+                <!-- Sidebar de Tags -->
+                <aside class="tags-sidebar">
+                    <div class="tags-sidebar-header">Tags</div>
+                    <div id="tagTabs">
+                        <button class="tag-sidebar-item active" onclick="setTagTab('')">Todos</button>
+                    </div>
+                </aside>
 
-            <!-- Filtros -->
-            <div class="filters-section">
-                <div class="filter-group">
-                    <input type="text" id="filterSearch" placeholder="Buscar por nome...">
-                </div>
-                <div class="filter-group">
-                    <select id="filterType">
-                        <option value="">Todos os tipos</option>
-                        <option value="image">Imagens</option>
-                        <option value="video">Vídeos</option>
-                        <option value="audio">Áudios</option>
-                        <option value="other">Outros</option>
-                    </select>
-                </div>
-                <div class="filter-group filter-actions">
-                    <button class="btn btn-primary" id="applyFilters">Filtrar</button>
-                    <button class="btn btn-secondary" id="clearFilters">Limpar</button>
+                <!-- Conteúdo Principal -->
+                <div class="files-main">
+                    <!-- Filtros -->
+                    <div class="filters-section">
+                        <div class="filter-group">
+                            <input type="text" id="filterSearch" placeholder="Buscar por nome...">
+                        </div>
+                        <div class="filter-group">
+                            <select id="filterType">
+                                <option value="">Todos os tipos</option>
+                                <option value="image">Imagens</option>
+                                <option value="video">Vídeos</option>
+                                <option value="audio">Áudios</option>
+                                <option value="other">Outros</option>
+                            </select>
+                        </div>
+                        <div class="filter-group filter-actions">
+                            <button class="btn btn-primary" id="applyFilters">Filtrar</button>
+                            <button class="btn btn-secondary" id="clearFilters">Limpar</button>
+                        </div>
+                    </div>
+
+                    <div class="files-grid" id="filesGrid"></div>
                 </div>
             </div>
-
-            <div class="files-grid" id="filesGrid"></div>
         </div>
     </div>
 

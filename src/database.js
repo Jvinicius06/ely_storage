@@ -73,6 +73,16 @@ try {
   // Coluna já existe
 }
 
+// Criar tabela de rastreamento de downloads
+db.exec(`
+  CREATE TABLE IF NOT EXISTS file_downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id INTEGER NOT NULL,
+    downloaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+  )
+`);
+
 // ==================== ÍNDICES PARA PERFORMANCE ====================
 // Criar índices se não existirem
 db.exec(`CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at DESC)`);
@@ -81,6 +91,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by)`
 db.exec(`CREATE INDEX IF NOT EXISTS idx_files_stored_name ON files(stored_name)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_files_tags ON files(tags)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_downloads_file_id ON file_downloads(file_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_downloads_date ON file_downloads(downloaded_at)`);
 
 // Criar usuário admin inicial se não existir
 const adminUsername = process.env.ADMIN_USERNAME || 'admin';
@@ -381,6 +393,41 @@ export const dbOperations = {
     return Object.entries(tagCounts)
       .map(([tag, count]) => ({ tag, count }))
       .sort((a, b) => b.count - a.count);
+  },
+
+  // ==================== DOWNLOADS ====================
+
+  // Registrar um download
+  recordDownload(fileId) {
+    const stmt = db.prepare('INSERT INTO file_downloads (file_id) VALUES (?)');
+    stmt.run(fileId);
+  },
+
+  // Estatísticas de downloads por arquivo nos últimos N dias
+  getDownloadStats(days = 30) {
+    const stmt = db.prepare(`
+      SELECT
+        f.id,
+        f.original_name,
+        f.stored_name,
+        f.file_type,
+        f.mime_type,
+        f.size,
+        f.download_url,
+        f.tags,
+        f.uploaded_at,
+        u.username as uploaded_by_username,
+        COUNT(d.id) as download_count,
+        MAX(d.downloaded_at) as last_downloaded_at
+      FROM files f
+      LEFT JOIN users u ON f.uploaded_by = u.id
+      LEFT JOIN file_downloads d
+        ON f.id = d.file_id
+        AND d.downloaded_at >= datetime('now', '-' || ? || ' days')
+      GROUP BY f.id
+      ORDER BY download_count ASC, f.uploaded_at ASC
+    `);
+    return stmt.all(days);
   },
 
   // ==================== MANUTENÇÃO E OTIMIZAÇÃO ====================

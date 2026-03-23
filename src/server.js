@@ -112,6 +112,19 @@ await fastify.register(fastifyStatic, {
   prefix: '/'
 });
 
+// Rastrear downloads (registra no banco antes de servir o arquivo)
+const downloadTracker = async (request, reply) => {
+  try {
+    const filename = decodeURIComponent(request.url.replace('/download/', '').split('?')[0]);
+    const file = dbOperations.getFileByStoredName(filename);
+    if (file) {
+      dbOperations.recordDownload(file.id);
+    }
+  } catch (e) {
+    // Não interromper o download por erro de rastreamento
+  }
+};
+
 // Servir arquivos de upload com otimizações de performance
 await fastify.register(fastifyStatic, {
   root: join(__dirname, '..', 'config', 'uploads'),
@@ -132,11 +145,11 @@ await fastify.register(fastifyStatic, {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     // Permitir cross-origin (se necessário)
     res.setHeader('Access-Control-Allow-Origin', '*');
-    // Sugerir download ao invés de abrir no navegador (opcional)
-    // res.setHeader('Content-Disposition', 'attachment');
   },
-  // Middlewares: Hot Cache (se habilitado) + Rate Limiting
-  preHandler: ENABLE_HOT_CACHE ? [hotCacheMiddleware, rateLimiter] : rateLimiter
+  // Middlewares: Download Tracker + Hot Cache (se habilitado) + Rate Limiting
+  preHandler: ENABLE_HOT_CACHE
+    ? [downloadTracker, hotCacheMiddleware, rateLimiter]
+    : [downloadTracker, rateLimiter]
 });
 
 // Gerar nome único para arquivo
@@ -818,6 +831,33 @@ fastify.patch('/api/files/:id/tags', {
     return reply.code(500).send({
       error: 'Internal Server Error',
       message: 'Erro ao atualizar tags.'
+    });
+  }
+});
+
+// Estatísticas de downloads por arquivo
+fastify.get('/api/stats/downloads', {
+  preHandler: requireAuth
+}, async (request, reply) => {
+  try {
+    const days = parseInt(request.query.days) || 30;
+    const validDays = Math.min(Math.max(days, 1), 365);
+    const files = dbOperations.getDownloadStats(validDays);
+    const totalDownloads = files.reduce((sum, f) => sum + f.download_count, 0);
+    const unusedCount = files.filter(f => f.download_count === 0).length;
+    return {
+      success: true,
+      days: validDays,
+      totalFiles: files.length,
+      totalDownloads,
+      unusedCount,
+      files
+    };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao buscar estatísticas de downloads.'
     });
   }
 });
