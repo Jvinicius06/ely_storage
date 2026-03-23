@@ -563,11 +563,11 @@ function renderTagTabs(tags) {
     if (!container) return;
 
     container.innerHTML = `
-        <button class="tag-tab ${activeTag === '' ? 'active' : ''}" onclick="setTagTab('')">
+        <button class="tag-sidebar-item ${activeTag === '' ? 'active' : ''}" onclick="setTagTab('')">
             Todos
         </button>
         ${tags.map(tag => `
-            <button class="tag-tab ${activeTag === tag ? 'active' : ''}" onclick="setTagTab(${JSON.stringify(tag)})">
+            <button class="tag-sidebar-item ${activeTag === tag ? 'active' : ''}" onclick="setTagTab(${JSON.stringify(tag)})">
                 ${escapeHtml(tag)}
             </button>
         `).join('')}
