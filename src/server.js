@@ -76,6 +76,27 @@ const fastify = Fastify({
   }
 });
 
+// Rastrear downloads ANTES de qualquer plugin.
+// Hooks do Fastify são herdados no momento da criação do escopo do plugin.
+// Se o hook for adicionado depois de um register(), esse plugin já está
+// "selado" e não herda o hook. Registrar aqui garante que todos os plugins
+// herdam este hook, independente da ordem.
+fastify.addHook('onRequest', async (request, reply) => {
+  if (request.method === 'GET' && request.url.startsWith('/download/')) {
+    try {
+      const filename = decodeURIComponent(
+        request.url.slice('/download/'.length).split('?')[0]
+      );
+      if (filename) {
+        const file = dbOperations.getFileByStoredName(filename);
+        if (file) dbOperations.recordDownload(file.id);
+      }
+    } catch (e) {
+      fastify.log.warn(`Erro ao registrar download: ${e.message}`);
+    }
+  }
+});
+
 // Registrar plugins
 await fastify.register(fastifyCors, {
   origin: true,
@@ -110,26 +131,6 @@ await fastify.register(fastifyMultipart, {
 await fastify.register(fastifyStatic, {
   root: join(__dirname, '..', 'public'),
   prefix: '/'
-});
-
-// Rastrear downloads via hook global.
-// Motivo: dentro de plugins com `prefix`, o Fastify remove o prefixo de request.url,
-// então o preHandler do plugin não consegue reconstruir o nome do arquivo.
-// O hook onRequest no nível raiz recebe sempre a URL completa.
-fastify.addHook('onRequest', async (request, reply) => {
-  if (request.method === 'GET' && request.url.startsWith('/download/')) {
-    try {
-      const filename = decodeURIComponent(
-        request.url.slice('/download/'.length).split('?')[0]
-      );
-      if (filename) {
-        const file = dbOperations.getFileByStoredName(filename);
-        if (file) dbOperations.recordDownload(file.id);
-      }
-    } catch (e) {
-      // Não interromper o download por erro de rastreamento
-    }
-  }
 });
 
 // Servir arquivos de upload com otimizações de performance
