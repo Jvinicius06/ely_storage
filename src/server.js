@@ -6,7 +6,7 @@ import fastifySession from '@fastify/session';
 import fastifyCookie from '@fastify/cookie';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, basename } from 'path';
 import { promises as fs } from 'fs';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
@@ -76,27 +76,6 @@ const fastify = Fastify({
   }
 });
 
-// Rastrear downloads ANTES de qualquer plugin.
-// Hooks do Fastify são herdados no momento da criação do escopo do plugin.
-// Se o hook for adicionado depois de um register(), esse plugin já está
-// "selado" e não herda o hook. Registrar aqui garante que todos os plugins
-// herdam este hook, independente da ordem.
-fastify.addHook('onRequest', async (request, reply) => {
-  if (request.method === 'GET' && request.url.startsWith('/download/')) {
-    try {
-      const filename = decodeURIComponent(
-        request.url.slice('/download/'.length).split('?')[0]
-      );
-      if (filename) {
-        const file = dbOperations.getFileByStoredName(filename);
-        if (file) dbOperations.recordDownload(file.id);
-      }
-    } catch (e) {
-      fastify.log.warn(`Erro ao registrar download: ${e.message}`);
-    }
-  }
-});
-
 // Registrar plugins
 await fastify.register(fastifyCors, {
   origin: true,
@@ -133,30 +112,6 @@ await fastify.register(fastifyStatic, {
   prefix: '/'
 });
 
-// Servir arquivos de upload com otimizações de performance
-await fastify.register(fastifyStatic, {
-  root: join(__dirname, '..', 'config', 'uploads'),
-  prefix: '/download/',
-  decorateReply: false,
-  // Enviar arquivos diretamente sem buffer (streaming)
-  send: {
-    maxAge: 86400000, // Cache de 24 horas no cliente (1 dia)
-    cacheControl: true,
-    dotfiles: 'deny', // Segurança: não servir arquivos ocultos
-    etag: true, // ETag para validação de cache
-    lastModified: true, // Last-Modified header
-    immutable: true, // Arquivos são imutáveis (nomes únicos)
-  },
-  preCompressed: false, // Não buscar versões pré-comprimidas
-  setHeaders: (res, path, stat) => {
-    // Cache agressivo (arquivos são imutáveis devido a nomes únicos)
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    // Permitir cross-origin (se necessário)
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  },
-  // Middlewares: Hot Cache (se habilitado) + Rate Limiting
-  preHandler: ENABLE_HOT_CACHE ? [hotCacheMiddleware, rateLimiter] : rateLimiter
-});
 
 // Gerar nome único para arquivo
 function generateUniqueFileName(originalName) {
@@ -175,6 +130,37 @@ function getFileType(mimeType) {
 }
 
 // ==================== ROTAS ====================
+
+// Rota de download com rastreamento explícito.
+// Substituímos o @fastify/static com prefix /download/ por uma rota explícita
+// porque em Fastify 5 + @fastify/static v8, hooks globais (onRequest/addHook)
+// não propagam de forma confiável para rotas de plugins estáticos registrados
+// com await fastify.register(). Uma rota direta (fastify.get) sempre herda
+// todos os hooks e middlewares do contexto raiz sem ambiguidade.
+const UPLOADS_DIR = join(__dirname, '..', 'config', 'uploads');
+
+fastify.get('/download/:filename', {
+  preHandler: ENABLE_HOT_CACHE ? [hotCacheMiddleware, rateLimiter] : rateLimiter
+}, async (request, reply) => {
+  // basename() previne path traversal (e.g. ../../etc/passwd)
+  const filename = basename(request.params.filename);
+
+  // Rastrear download de forma síncrona (better-sqlite3 é síncrono)
+  try {
+    const fileRecord = dbOperations.getFileByStoredName(filename);
+    if (fileRecord) {
+      dbOperations.recordDownload(fileRecord.id);
+    }
+  } catch (e) {
+    fastify.log.warn(`Erro ao rastrear download de "${filename}": ${e.message}`);
+  }
+
+  // Servir o arquivo usando o sendFile do @fastify/static (suporta Range, ETag, etc.)
+  reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+  reply.header('Access-Control-Allow-Origin', '*');
+
+  return reply.sendFile(filename, UPLOADS_DIR);
+});
 
 // Rota de health check
 fastify.get('/api/health', async (request, reply) => {
