@@ -66,52 +66,6 @@ export function rateLimiter(request, reply, done) {
   done();
 }
 
-/**
- * Rate limiter mais rigoroso para upload
- */
-export function uploadRateLimiter(request, reply, done) {
-  const ip = request.ip || request.socket.remoteAddress;
-  const key = `upload:${ip}`;
-  const now = Date.now();
-  const UPLOAD_WINDOW = 60 * 1000; // 1 minuto
-  const MAX_UPLOADS = 10; // 10 uploads por minuto
-
-  let record = rateLimitMap.get(key);
-
-  if (!record) {
-    record = {
-      count: 1,
-      resetTime: now
-    };
-    rateLimitMap.set(key, record);
-    done();
-    return;
-  }
-
-  if (now - record.resetTime > UPLOAD_WINDOW) {
-    record.count = 1;
-    record.resetTime = now;
-    rateLimitMap.set(key, record);
-    done();
-    return;
-  }
-
-  record.count++;
-
-  if (record.count > MAX_UPLOADS) {
-    const retryAfter = Math.ceil((UPLOAD_WINDOW - (now - record.resetTime)) / 1000);
-
-    reply.code(429).send({
-      error: 'Too Many Requests',
-      message: `Muitos uploads. Tente novamente em ${retryAfter} segundos.`,
-      retryAfter
-    });
-    return;
-  }
-
-  done();
-}
-
 // Exportar stats para monitoramento
 export function getRateLimitStats() {
   return {

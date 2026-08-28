@@ -14,7 +14,7 @@ import { randomBytes } from 'crypto';
 import { dbOperations } from './database.js';
 import { authMiddleware } from './middleware/auth.js';
 import { requireAuth, requireAdmin } from './middleware/session.js';
-import { rateLimiter, uploadRateLimiter } from './middleware/rate-limiter.js';
+import { rateLimiter } from './middleware/rate-limiter.js';
 import { hotCacheMiddleware, getCacheStats } from './middleware/hot-cache.js';
 import { sendDiscordNotification } from './services/discord.js';
 // Migração Discord removida (não utilizada) para economizar memória
@@ -481,7 +481,6 @@ fastify.patch('/api/users/:id/reset-password', {
 // Rota de upload (protegida por autenticação de usuário ou API Key)
 fastify.post('/api/upload', {
   preHandler: [
-    uploadRateLimiter,
     async function(request, reply) {
       // Verificar se tem API Key (para integração externa)
       const apiKey = request.headers['x-api-key'] || request.query.apiKey;

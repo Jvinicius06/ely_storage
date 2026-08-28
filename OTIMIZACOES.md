@@ -29,7 +29,7 @@
 
 ### 3. **Rate Limiting** 🚦
 - **Downloads**: 60 requests/minuto por IP
-- **Uploads**: 10 uploads/minuto por IP
+- **Uploads**: sem limite de quantidade (rota já protegida por autenticação/API Key)
 - Limpeza automática a cada 5 minutos
 - Previne abuso e sobrecarga
 

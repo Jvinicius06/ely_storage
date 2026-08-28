@@ -563,16 +563,23 @@ function renderTagTabs(tags) {
     if (!container) return;
 
     container.innerHTML = `
-        <button class="tag-sidebar-item ${activeTag === '' ? 'active' : ''}" onclick="setTagTab('')">
+        <button class="tag-sidebar-item ${activeTag === '' ? 'active' : ''}" data-tag="">
             Todos
         </button>
         ${tags.map(tag => `
-            <button class="tag-sidebar-item ${activeTag === tag ? 'active' : ''}" onclick="setTagTab(${JSON.stringify(tag)})">
+            <button class="tag-sidebar-item ${activeTag === tag ? 'active' : ''}" data-tag="${escapeHtml(tag)}">
                 ${escapeHtml(tag)}
             </button>
         `).join('')}
     `;
 }
+
+// Delegação de eventos: funciona para qualquer tag, inclusive com aspas/acentos
+document.getElementById('tagTabs')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tag-sidebar-item');
+    if (!btn) return;
+    setTagTab(btn.dataset.tag || '');
+});
 
 function setTagTab(tag) {
     activeTag = tag;
