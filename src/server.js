@@ -32,7 +32,7 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const API_KEY = process.env.API_KEY;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key-change-this-in-production';
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '100');
+const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '1000');
 const ENABLE_HOT_CACHE = process.env.ENABLE_HOT_CACHE === 'true'; // Cache para arquivos populares
 
 // Criar instância do Fastify com logging otimizado
@@ -478,20 +478,187 @@ fastify.patch('/api/users/:id/reset-password', {
   }
 });
 
+// Autenticação de upload: API Key (integrações externas) ou sessão de usuário
+async function uploadAuth(request, reply) {
+  const apiKey = request.headers['x-api-key'] || request.query.apiKey;
+  if (apiKey === API_KEY) {
+    return; // API Key válida, continuar
+  }
+  return requireAuth(request, reply, () => {});
+}
+
+// ==================== UPLOAD EM CHUNKS ====================
+// Proxies como o Cloudflare (free/pro) cortam requests com corpo > 100MB.
+// Arquivos grandes são enviados em partes menores e remontados aqui.
+
+const TMP_UPLOADS_DIR = join(__dirname, '..', 'config', 'uploads', 'tmp');
+await fs.mkdir(TMP_UPLOADS_DIR, { recursive: true });
+
+const chunkedUploads = new Map(); // uploadId -> { receivedChunks, lastActivity }
+
+// Remover uploads em chunks abandonados (6h sem atividade)
+setInterval(async () => {
+  const now = Date.now();
+  for (const [id, info] of chunkedUploads.entries()) {
+    if (now - info.lastActivity > 6 * 60 * 60 * 1000) {
+      chunkedUploads.delete(id);
+      try { await fs.unlink(join(TMP_UPLOADS_DIR, `${id}.part`)); } catch {}
+    }
+  }
+}, 30 * 60 * 1000);
+
+// Receber um chunk de um arquivo grande
+fastify.post('/api/upload/chunk', {
+  preHandler: [uploadAuth]
+}, async (request, reply) => {
+  try {
+    const data = await request.file();
+
+    if (!data) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Nenhum chunk fornecido.'
+      });
+    }
+
+    const uploadId = data.fields?.uploadId?.value || '';
+    const chunkIndex = parseInt(data.fields?.chunkIndex?.value, 10);
+    const totalChunks = parseInt(data.fields?.totalChunks?.value, 10);
+
+    if (!/^[a-f0-9]{32}$/.test(uploadId) || !Number.isInteger(chunkIndex) ||
+        !Number.isInteger(totalChunks) || chunkIndex < 0 || totalChunks < 1 || chunkIndex >= totalChunks) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Parâmetros do chunk inválidos.'
+      });
+    }
+
+    const partPath = join(TMP_UPLOADS_DIR, `${uploadId}.part`);
+    let info = chunkedUploads.get(uploadId);
+
+    if (chunkIndex === 0) {
+      info = { receivedChunks: 0, lastActivity: Date.now() };
+      chunkedUploads.set(uploadId, info);
+    } else if (!info || info.receivedChunks !== chunkIndex) {
+      return reply.code(409).send({
+        error: 'Conflict',
+        message: 'Chunk fora de ordem. Reinicie o upload.'
+      });
+    }
+
+    const writeStream = createWriteStream(partPath, { flags: chunkIndex === 0 ? 'w' : 'a' });
+    await pipeline(data.file, writeStream);
+
+    info.receivedChunks = chunkIndex + 1;
+    info.lastActivity = Date.now();
+
+    // O limite por request vale para cada chunk; validar também o total montado
+    const { size } = await fs.stat(partPath);
+    if (size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      chunkedUploads.delete(uploadId);
+      await fs.unlink(partPath).catch(() => {});
+      return reply.code(413).send({
+        error: 'Payload Too Large',
+        message: `Arquivo excede o limite de ${MAX_FILE_SIZE_MB}MB.`
+      });
+    }
+
+    return { success: true, received: info.receivedChunks, totalChunks };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao receber chunk.',
+      details: error.message
+    });
+  }
+});
+
+// Finalizar upload em chunks: move o arquivo montado e registra no banco
+fastify.post('/api/upload/complete', {
+  preHandler: [uploadAuth]
+}, async (request, reply) => {
+  try {
+    const { uploadId, fileName, mimeType, totalChunks, tags, description } = request.body || {};
+
+    if (!/^[a-f0-9]{32}$/.test(uploadId || '') || !fileName) {
+      return reply.code(400).send({
+        error: 'Bad Request',
+        message: 'Parâmetros inválidos.'
+      });
+    }
+
+    const info = chunkedUploads.get(uploadId);
+    const partPath = join(TMP_UPLOADS_DIR, `${uploadId}.part`);
+
+    if (!info || info.receivedChunks !== parseInt(totalChunks, 10)) {
+      return reply.code(409).send({
+        error: 'Conflict',
+        message: 'Upload incompleto. Reinicie o envio.'
+      });
+    }
+
+    chunkedUploads.delete(uploadId);
+
+    const originalName = basename(String(fileName));
+    const finalMime = mimeType || 'application/octet-stream';
+    const storedName = generateUniqueFileName(originalName);
+    const fileType = getFileType(finalMime);
+    const uploadPath = join(__dirname, '..', 'config', 'uploads', storedName);
+    const uploadedBy = request.session.userId || null;
+
+    await fs.rename(partPath, uploadPath);
+
+    const stats = await fs.stat(uploadPath);
+    const fileSize = stats.size;
+    const downloadUrl = `${BASE_URL}/download/${storedName}`;
+
+    const fileId = dbOperations.insertFile({
+      originalName,
+      storedName,
+      fileType,
+      mimeType: finalMime,
+      size: fileSize,
+      downloadUrl,
+      tags: tags || '',
+      description: description || '',
+      uploadedBy
+    });
+
+    await sendDiscordNotification(DISCORD_WEBHOOK_URL, {
+      originalName,
+      mimeType: finalMime,
+      size: fileSize,
+      downloadUrl
+    });
+
+    return reply.code(201).send({
+      success: true,
+      message: 'Arquivo enviado com sucesso!',
+      file: {
+        id: fileId,
+        originalName,
+        storedName,
+        fileType,
+        mimeType: finalMime,
+        size: fileSize,
+        downloadUrl,
+        uploadedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal Server Error',
+      message: 'Erro ao finalizar upload.',
+      details: error.message
+    });
+  }
+});
+
 // Rota de upload (protegida por autenticação de usuário ou API Key)
 fastify.post('/api/upload', {
-  preHandler: [
-    async function(request, reply) {
-      // Verificar se tem API Key (para integração externa)
-      const apiKey = request.headers['x-api-key'] || request.query.apiKey;
-      if (apiKey === API_KEY) {
-        return; // API Key válida, continuar
-      }
-
-      // Caso contrário, verificar autenticação de usuário
-      return requireAuth(request, reply, () => {});
-    }
-  ]
+  preHandler: [uploadAuth]
 }, async (request, reply) => {
   try {
     const data = await request.file();

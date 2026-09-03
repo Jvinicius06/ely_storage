@@ -298,7 +298,13 @@ async function uploadQueue() {
     loadFiles();
 }
 
+// Chunks de 90MB: cada request fica abaixo do limite de 100MB do Cloudflare
+const CHUNK_SIZE = 90 * 1024 * 1024;
+
 function uploadSingleFile(file, tags, description, fileIndex, totalCount) {
+    if (file.size > CHUNK_SIZE) {
+        return uploadFileInChunks(file, tags, description, fileIndex, totalCount);
+    }
     return new Promise((resolve, reject) => {
         const formData = new FormData();
         formData.append('file', file);
@@ -331,6 +337,74 @@ function uploadSingleFile(file, tags, description, fileIndex, totalCount) {
         xhr.withCredentials = true;
         xhr.send(formData);
     });
+}
+
+function generateUploadId() {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function sendChunk(formData, onProgress) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) onProgress(e.loaded / e.total);
+        });
+
+        xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve();
+            } else {
+                reject(new Error(`Status ${xhr.status}`));
+            }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Erro de rede')));
+
+        xhr.open('POST', `${API_URL}/api/upload/chunk`);
+        xhr.withCredentials = true;
+        xhr.send(formData);
+    });
+}
+
+async function uploadFileInChunks(file, tags, description, fileIndex, totalCount) {
+    const uploadId = generateUploadId();
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    for (let i = 0; i < totalChunks; i++) {
+        const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const formData = new FormData();
+        formData.append('uploadId', uploadId);
+        formData.append('chunkIndex', i);
+        formData.append('totalChunks', totalChunks);
+        formData.append('file', chunk, file.name);
+
+        await sendChunk(formData, (chunkProgress) => {
+            const fileProgress = (i + chunkProgress) / totalChunks;
+            const overallProgress = Math.round(((fileIndex + fileProgress) / totalCount) * 100);
+            progressBar.style.width = overallProgress + '%';
+            progressText.textContent = overallProgress + '%';
+            progressLabel.textContent = `Enviando ${fileIndex + 1} de ${totalCount}: ${file.name} (parte ${i + 1}/${totalChunks})`;
+        });
+    }
+
+    const response = await fetch(`${API_URL}/api/upload/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+            uploadId,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            totalChunks,
+            tags,
+            description
+        })
+    });
+
+    if (!response.ok) throw new Error(`Status ${response.status}`);
 }
 
 // ==================== LISTAGEM DE ARQUIVOS ====================
