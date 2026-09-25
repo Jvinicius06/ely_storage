@@ -22,6 +22,14 @@ setInterval(() => {
  * Middleware de rate limiting
  */
 export function rateLimiter(request, reply, done) {
+  // Continuação de vídeo (Range que não começa em 0) não conta: o player faz
+  // dezenas de requests 206 ao buscar/avançar, principalmente em MP4 mal intercalado
+  const range = request.headers.range;
+  if (range && !range.startsWith('bytes=0-')) {
+    done();
+    return;
+  }
+
   const ip = request.ip || request.socket.remoteAddress;
   const now = Date.now();
 
