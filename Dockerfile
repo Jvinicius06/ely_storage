@@ -1,5 +1,5 @@
 # Stage 1: Build (com dependências nativas para bcrypt e better-sqlite3)
-FROM node:18-bullseye-slim AS builder
+FROM node:18-bookworm-slim AS builder
 
 # Instalar dependências de build necessárias para bcrypt e better-sqlite3
 RUN apt-get update && apt-get install -y \
@@ -17,7 +17,7 @@ COPY package*.json ./
 RUN npm ci --build-from-source
 
 # Stage 2: Runtime (imagem final otimizada)
-FROM node:18-bullseye-slim
+FROM node:18-bookworm-slim
 
 WORKDIR /app
 
