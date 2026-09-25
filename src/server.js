@@ -15,7 +15,7 @@ import { dbOperations } from './database.js';
 import { authMiddleware } from './middleware/auth.js';
 import { requireAuth, requireAdmin } from './middleware/session.js';
 import { rateLimiter } from './middleware/rate-limiter.js';
-import { hotCacheMiddleware, getCacheStats } from './middleware/hot-cache.js';
+import { isVideo, serveVideoFromCache, evictFromCache, getCacheStats, HOT_CACHE_LIMIT_MB } from './middleware/hot-cache.js';
 import { sendDiscordNotification } from './services/discord.js';
 // Migração Discord removida (não utilizada) para economizar memória
 // import { migrateChannel } from './services/discord-migrator.js';
@@ -140,25 +140,35 @@ function getFileType(mimeType) {
 const UPLOADS_DIR = join(__dirname, '..', 'config', 'uploads');
 
 fastify.get('/download/:filename', {
-  preHandler: ENABLE_HOT_CACHE ? [hotCacheMiddleware, rateLimiter] : rateLimiter
+  preHandler: rateLimiter
 }, async (request, reply) => {
   // basename() previne path traversal (e.g. ../../etc/passwd)
   const filename = basename(request.params.filename);
+  const range = request.headers.range;
 
-  // Rastrear download de forma síncrona (better-sqlite3 é síncrono)
+  // Rastrear download de forma síncrona (better-sqlite3 é síncrono).
+  // Vídeo chega em vários pedaços (206): contar só o primeiro (sem Range ou começando em 0)
+  let fileRecord = null;
   try {
-    const fileRecord = dbOperations.getFileByStoredName(filename);
-    if (fileRecord) {
+    fileRecord = dbOperations.getFileByStoredName(filename);
+    if (fileRecord && (!range || range.startsWith('bytes=0-'))) {
       dbOperations.recordDownload(fileRecord.id);
     }
   } catch (e) {
     fastify.log.warn(`Erro ao rastrear download de "${filename}": ${e.message}`);
   }
 
-  // Servir o arquivo usando o sendFile do @fastify/static (suporta Range, ETag, etc.)
   reply.header('Cache-Control', 'public, max-age=31536000, immutable');
   reply.header('Access-Control-Allow-Origin', '*');
 
+  // Vídeos: servir da RAM (Range/206 via slice do buffer compartilhado)
+  if (ENABLE_HOT_CACHE && isVideo(filename, fileRecord?.mime_type)) {
+    if (serveVideoFromCache(request, reply, filename, join(UPLOADS_DIR, filename), fileRecord?.mime_type)) {
+      return reply;
+    }
+  }
+
+  // Demais arquivos (ou vídeo ainda carregando): sendFile do @fastify/static (suporta Range, ETag, etc.)
   return reply.sendFile(filename, UPLOADS_DIR);
 });
 
@@ -836,6 +846,7 @@ fastify.delete('/api/files/:id', {
     } catch (err) {
       fastify.log.warn(`Arquivo físico não encontrado: ${filePath}`);
     }
+    evictFromCache(file.stored_name);
 
     // Deletar do banco de dados
     dbOperations.deleteFile(id);
@@ -1088,7 +1099,7 @@ const start = async () => {
     console.log(`🔑 API Key configurada: ${API_KEY ? 'Sim' : 'Não'}`);
     console.log(`💬 Discord Webhook: ${DISCORD_WEBHOOK_URL ? 'Configurado' : 'Não configurado'}`);
     console.log(`📦 Tamanho máximo: ${MAX_FILE_SIZE_MB}MB`);
-    console.log(`🔥 Hot Cache: ${ENABLE_HOT_CACHE ? '✅ Ativado (512MB)' : '❌ Desativado'}`);
+    console.log(`🔥 Hot Cache: ${ENABLE_HOT_CACHE ? `✅ Ativado - vídeos (${HOT_CACHE_LIMIT_MB}MB)` : '❌ Desativado'}`);
     console.log(`🌍 Ambiente: ${isProduction ? 'Produção' : 'Desenvolvimento'}`);
     console.log('================================================\n');
     console.log('📖 Endpoints disponíveis:');
