@@ -542,27 +542,30 @@ function getFilePreview(file) {
 
 // ==================== AÇÕES ====================
 
+let previewRequestId = 0;
+
 async function openPreview(fileId) {
+    const requestId = ++previewRequestId;
     try {
         const response = await fetch(`${API_URL}/api/files/${fileId}`);
         const data = await response.json();
-        if (!data.success) return;
+        // Modal fechado (ou outro preview aberto) enquanto carregava
+        if (!data.success || requestId !== previewRequestId) return;
 
         const file = data.file;
+        // Título sempre presente: sem ele o modal pode ficar sem conteúdo visível
+        const title = `<h3 class="preview-title">${escapeHtml(file.original_name || 'Arquivo sem nome')}</h3>`;
         let content = '';
 
         if (file.file_type === 'image') {
-            content = `<img src="${file.download_url}" alt="${escapeHtml(file.original_name)}">`;
+            content = `${title}<img src="${file.download_url}" alt="${escapeHtml(file.original_name || '')}">`;
         } else if (file.file_type === 'video') {
-            content = `<video src="${file.download_url}" controls style="max-width: 100%;"></video>`;
+            content = `${title}<video src="${file.download_url}" controls playsinline></video>`;
         } else if (file.file_type === 'audio') {
-            content = `
-                <h3 style="margin-bottom:16px">${escapeHtml(file.original_name)}</h3>
-                <audio src="${file.download_url}" controls></audio>
-            `;
+            content = `${title}<audio src="${file.download_url}" controls></audio>`;
         } else {
             content = `
-                <h3 style="margin-bottom:16px">${escapeHtml(file.original_name)}</h3>
+                ${title}
                 <p style="color:var(--gray); margin-bottom:8px">Tipo: ${escapeHtml(file.mime_type)}</p>
                 <p style="color:var(--gray); margin-bottom:16px">Tamanho: ${formatFileSize(file.size)}</p>
                 <a href="${file.download_url}" target="_blank" class="btn btn-primary">Abrir arquivo</a>
@@ -574,6 +577,19 @@ async function openPreview(fileId) {
     } catch (error) {
         showNotification('Erro ao abrir preview', 'error');
     }
+}
+
+function closePreview() {
+    previewRequestId++;
+    // Parar e descarregar a mídia: só esconder o modal deixa o áudio tocando
+    // e o navegador continua baixando o vídeo
+    modalBody.querySelectorAll('video, audio').forEach(media => {
+        media.pause();
+        media.removeAttribute('src');
+        media.load();
+    });
+    modalBody.innerHTML = '';
+    previewModal.classList.remove('active');
 }
 
 function copyLink(url) {
@@ -842,9 +858,12 @@ refreshBtn.addEventListener('click', () => {
     showNotification('Atualizado!', 'success');
 });
 
-modalClose.addEventListener('click', () => previewModal.classList.remove('active'));
+modalClose.addEventListener('click', closePreview);
 previewModal.addEventListener('click', (e) => {
-    if (e.target === previewModal) previewModal.classList.remove('active');
+    if (e.target === previewModal) closePreview();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && previewModal.classList.contains('active')) closePreview();
 });
 
 applyFiltersBtn.addEventListener('click', () => searchFiles());
