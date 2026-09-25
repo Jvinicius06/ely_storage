@@ -19,6 +19,10 @@ RUN npm ci --build-from-source
 # Stage 2: Runtime (imagem final otimizada)
 FROM node:18-bookworm-slim
 
+# ffmpeg para otimizar vídeos para streaming (faststart/intercalado)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copiar node_modules compilados do builder

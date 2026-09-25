@@ -17,6 +17,7 @@ import { requireAuth, requireAdmin } from './middleware/session.js';
 import { rateLimiter } from './middleware/rate-limiter.js';
 import { isVideo, serveVideoFromCache, evictFromCache, getCacheStats, HOT_CACHE_LIMIT_MB } from './middleware/hot-cache.js';
 import { sendDiscordNotification } from './services/discord.js';
+import { initVideoProcessor, isVideoProcessingEnabled, isConvertibleVideo, isVideoProcessing, enqueueVideo, optimizeExistingVideos } from './services/video-processor.js';
 // Migração Discord removida (não utilizada) para economizar memória
 // import { migrateChannel } from './services/discord-migrator.js';
 
@@ -114,11 +115,19 @@ await fastify.register(fastifyStatic, {
 
 
 // Gerar nome único para arquivo
-function generateUniqueFileName(originalName) {
+function generateUniqueFileName(originalName, forcedExtension) {
   const timestamp = Date.now();
   const random = randomBytes(8).toString('hex');
-  const extension = originalName.split('.').pop();
+  const extension = forcedExtension || originalName.split('.').pop();
   return `${timestamp}-${random}.${extension}`;
+}
+
+// Vídeos convertíveis viram .mp4 já no nome (a URL não muda depois da otimização)
+function prepareStoredFile(originalName, mimeType) {
+  if (isVideoProcessingEnabled() && isConvertibleVideo(originalName)) {
+    return { storedName: generateUniqueFileName(originalName, 'mp4'), fileType: 'video', optimizeVideo: true };
+  }
+  return { storedName: generateUniqueFileName(originalName), fileType: getFileType(mimeType), optimizeVideo: false };
 }
 
 // Determinar tipo de arquivo
@@ -158,8 +167,15 @@ fastify.get('/download/:filename', {
     fastify.log.warn(`Erro ao rastrear download de "${filename}": ${e.message}`);
   }
 
-  reply.header('Cache-Control', 'public, max-age=31536000, immutable');
   reply.header('Access-Control-Allow-Origin', '*');
+
+  // Vídeo ainda sendo otimizado: o conteúdo vai mudar, então não cachear em lugar nenhum
+  if (isVideoProcessing(filename)) {
+    reply.header('Cache-Control', 'no-store');
+    return reply.sendFile(filename, UPLOADS_DIR, { cacheControl: false });
+  }
+
+  reply.header('Cache-Control', 'public, max-age=31536000, immutable');
 
   // Vídeos: servir da RAM (Range/206 via slice do buffer compartilhado)
   if (ENABLE_HOT_CACHE && isVideo(filename, fileRecord?.mime_type)) {
@@ -169,7 +185,7 @@ fastify.get('/download/:filename', {
   }
 
   // Demais arquivos (ou vídeo ainda carregando): sendFile do @fastify/static (suporta Range, ETag, etc.)
-  return reply.sendFile(filename, UPLOADS_DIR);
+  return reply.sendFile(filename, UPLOADS_DIR, { cacheControl: false });
 });
 
 // Rota de health check
@@ -612,8 +628,7 @@ fastify.post('/api/upload/complete', {
 
     const originalName = basename(String(fileName));
     const finalMime = mimeType || 'application/octet-stream';
-    const storedName = generateUniqueFileName(originalName);
-    const fileType = getFileType(finalMime);
+    const { storedName, fileType, optimizeVideo } = prepareStoredFile(originalName, finalMime);
     const uploadPath = join(__dirname, '..', 'config', 'uploads', storedName);
     const uploadedBy = request.session.userId || null;
 
@@ -635,6 +650,9 @@ fastify.post('/api/upload/complete', {
       uploadedBy
     });
 
+    // Reempacotar para streaming em background (não segura a resposta)
+    if (optimizeVideo) enqueueVideo(storedName);
+
     await sendDiscordNotification(DISCORD_WEBHOOK_URL, {
       originalName,
       mimeType: finalMime,
@@ -653,7 +671,8 @@ fastify.post('/api/upload/complete', {
         mimeType: finalMime,
         size: fileSize,
         downloadUrl,
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        processing: optimizeVideo
       }
     });
   } catch (error) {
@@ -682,8 +701,7 @@ fastify.post('/api/upload', {
 
     const originalName = data.filename;
     const mimeType = data.mimetype;
-    const storedName = generateUniqueFileName(originalName);
-    const fileType = getFileType(mimeType);
+    const { storedName, fileType, optimizeVideo } = prepareStoredFile(originalName, mimeType);
     const uploadPath = join(__dirname, '..', 'config', 'uploads', storedName);
 
     // Extrair tags e description dos fields
@@ -724,6 +742,9 @@ fastify.post('/api/upload', {
       uploadedBy
     });
 
+    // Reempacotar para streaming em background (não segura a resposta)
+    if (optimizeVideo) enqueueVideo(storedName);
+
     // Enviar notificação para Discord
     await sendDiscordNotification(DISCORD_WEBHOOK_URL, {
       originalName,
@@ -743,7 +764,8 @@ fastify.post('/api/upload', {
         mimeType,
         size: fileSize,
         downloadUrl,
-        uploadedAt: new Date().toISOString()
+        uploadedAt: new Date().toISOString(),
+        processing: optimizeVideo
       }
     });
   } catch (error) {
@@ -1091,6 +1113,7 @@ setInterval(() => {
 
 const start = async () => {
   try {
+    const videoProcessing = await initVideoProcessor(UPLOADS_DIR);
     await fastify.listen({ port: PORT, host: '0.0.0.0' });
     console.log('\n================================================');
     console.log('🚀 Ely Storage Server iniciado com sucesso!');
@@ -1100,6 +1123,7 @@ const start = async () => {
     console.log(`💬 Discord Webhook: ${DISCORD_WEBHOOK_URL ? 'Configurado' : 'Não configurado'}`);
     console.log(`📦 Tamanho máximo: ${MAX_FILE_SIZE_MB}MB`);
     console.log(`🔥 Hot Cache: ${ENABLE_HOT_CACHE ? `✅ Ativado - vídeos (${HOT_CACHE_LIMIT_MB}MB)` : '❌ Desativado'}`);
+    console.log(`🎬 Otimização de vídeos (ffmpeg): ${videoProcessing ? '✅ Ativada' : '❌ ffmpeg não encontrado'}`);
     console.log(`🌍 Ambiente: ${isProduction ? 'Produção' : 'Desenvolvimento'}`);
     console.log('================================================\n');
     console.log('📖 Endpoints disponíveis:');
@@ -1110,6 +1134,9 @@ const start = async () => {
     console.log(`   DEL  ${BASE_URL}/api/files/:id - Deletar arquivo`);
     console.log(`   GET  ${BASE_URL}/download/:name - Download/visualização`);
     console.log('================================================\n');
+
+    // Vídeos enviados antes da otimização existir (índice no fim do arquivo)
+    optimizeExistingVideos().catch(err => fastify.log.error(err));
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

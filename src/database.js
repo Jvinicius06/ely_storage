@@ -223,6 +223,18 @@ export const dbOperations = {
     return stmt.get(storedName);
   },
 
+  // Atualizar tamanho/MIME após processamento do vídeo
+  updateFileMedia(storedName, size, mimeType) {
+    const stmt = db.prepare('UPDATE files SET size = ?, mime_type = ?, file_type = ? WHERE stored_name = ?');
+    return stmt.run(size, mimeType, 'video', storedName);
+  },
+
+  // Nomes de todos os vídeos (para otimizar os já enviados)
+  getVideoStoredNames() {
+    const stmt = db.prepare("SELECT stored_name FROM files WHERE file_type = 'video' OR mime_type LIKE 'video/%'");
+    return stmt.all().map(row => row.stored_name);
+  },
+
   // Deletar arquivo
   deleteFile(id) {
     const stmt = db.prepare('DELETE FROM files WHERE id = ?');
