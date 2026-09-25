@@ -39,6 +39,8 @@ const VIDEO_MIME_BY_EXT = {
 const videoCache = new Map();
 // Carregamentos em andamento (evita ler o mesmo arquivo várias vezes em paralelo)
 const loading = new Map();
+// Removidos durante o carregamento: descartar o buffer quando a leitura terminar
+const cancelled = new Set();
 
 let totalCacheBytes = 0;
 let reservedBytes = 0; // espaço reservado por carregamentos em andamento
@@ -62,6 +64,7 @@ function removeEntry(storedName) {
  * Remover vídeo do cache (ex.: arquivo deletado)
  */
 export function evictFromCache(storedName) {
+  if (loading.has(storedName)) cancelled.add(storedName);
   removeEntry(storedName);
 }
 
@@ -95,6 +98,8 @@ async function loadVideo(storedName, filePath, mimeType) {
     reservedBytes -= st.size;
   }
 
+  if (cancelled.has(storedName)) return;
+
   videoCache.set(storedName, {
     buffer,
     size: buffer.length,
@@ -118,8 +123,14 @@ function startLoading(storedName, filePath, mimeType) {
     : VIDEO_MIME_BY_EXT[extname(storedName).toLowerCase()] || 'application/octet-stream';
 
   const promise = loadVideo(storedName, filePath, contentType)
-    .catch(error => console.error(`Erro ao cachear vídeo ${storedName}:`, error.message))
-    .finally(() => loading.delete(storedName));
+    .catch(error => {
+      // Arquivo excluído entre o request e a leitura: não é erro
+      if (error.code !== 'ENOENT') console.error(`Erro ao cachear vídeo ${storedName}:`, error.message);
+    })
+    .finally(() => {
+      loading.delete(storedName);
+      cancelled.delete(storedName);
+    });
 
   loading.set(storedName, promise);
 }

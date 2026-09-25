@@ -175,11 +175,22 @@ fastify.get('/download/:filename', {
     return reply.sendFile(filename, UPLOADS_DIR, { cacheControl: false });
   }
 
+  // Arquivo excluído (ou inexistente): 404 sem cache, para não ficar guardado na Cloudflare/navegador
+  if (!fileRecord) {
+    try {
+      await fs.stat(join(UPLOADS_DIR, filename));
+    } catch {
+      reply.header('Cache-Control', 'no-store');
+      return reply.code(404).send({ error: 'Not Found', message: 'Arquivo não encontrado.' });
+    }
+  }
+
   reply.header('Cache-Control', 'public, max-age=31536000, immutable');
 
-  // Vídeos: servir da RAM (Range/206 via slice do buffer compartilhado)
-  if (ENABLE_HOT_CACHE && isVideo(filename, fileRecord?.mime_type)) {
-    if (serveVideoFromCache(request, reply, filename, join(UPLOADS_DIR, filename), fileRecord?.mime_type)) {
+  // Vídeos: servir da RAM (Range/206 via slice do buffer compartilhado).
+  // Só vídeos registrados no banco: arquivo excluído não pode voltar para o cache
+  if (ENABLE_HOT_CACHE && fileRecord && isVideo(filename, fileRecord.mime_type)) {
+    if (serveVideoFromCache(request, reply, filename, join(UPLOADS_DIR, filename), fileRecord.mime_type)) {
       return reply;
     }
   }
